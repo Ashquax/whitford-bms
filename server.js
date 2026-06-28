@@ -120,66 +120,341 @@ async function logEvent(type, data) {
   }
 }
 
+app.get("/setup", async (req, res) => {
+  const count = await pool.query("SELECT COUNT(*) FROM users");
+
+  if (Number(count.rows[0].count) > 0) {
+    return res.send(`
+      <body style="font-family:Arial;background:#f4f5f7;padding:40px">
+        <h1>Setup already completed</h1>
+        <p>The administrator account has already been created.</p>
+        <a href="/">Go to login</a>
+      </body>
+    `);
+  }
+
+  res.send(`
+<!DOCTYPE html>
+<html>
+<head>
+<title>Whitford BMS Setup</title>
+<style>
+body {
+  margin:0;
+  font-family: Arial, Helvetica, sans-serif;
+  background:#f2f3f5;
+  color:#1f2933;
+}
+.topbar {
+  height:6px;
+  background:#e20015;
+}
+.container {
+  max-width:460px;
+  margin:80px auto;
+  background:white;
+  border-radius:4px;
+  box-shadow:0 8px 25px rgba(0,0,0,0.12);
+  padding:34px;
+}
+.brand {
+  font-size:24px;
+  font-weight:bold;
+  margin-bottom:4px;
+}
+.sub {
+  color:#6b7280;
+  margin-bottom:30px;
+}
+input {
+  width:100%;
+  box-sizing:border-box;
+  padding:13px;
+  margin:8px 0 16px;
+  border:1px solid #c8ccd2;
+  border-radius:3px;
+}
+button {
+  width:100%;
+  background:#e20015;
+  color:white;
+  border:0;
+  padding:14px;
+  font-weight:bold;
+  cursor:pointer;
+  border-radius:3px;
+}
+button:hover {
+  background:#b80012;
+}
+.msg {
+  margin-top:15px;
+  color:#e20015;
+}
+</style>
+</head>
+<body>
+<div class="topbar"></div>
+
+<div class="container">
+  <div class="brand">Whitford BMS</div>
+  <div class="sub">Initial administrator setup</div>
+
+  <input id="username" placeholder="Administrator username">
+  <input id="password" type="password" placeholder="Password">
+  <input id="confirm" type="password" placeholder="Confirm password">
+
+  <button onclick="createAdmin()">Create Administrator</button>
+  <div class="msg" id="msg"></div>
+</div>
+
+<script>
+async function createAdmin() {
+  const username = document.getElementById("username").value.trim();
+  const password = document.getElementById("password").value;
+  const confirm = document.getElementById("confirm").value;
+
+  if (!username || !password) {
+    document.getElementById("msg").textContent = "Enter a username and password.";
+    return;
+  }
+
+  if (password !== confirm) {
+    document.getElementById("msg").textContent = "Passwords do not match.";
+    return;
+  }
+
+  const res = await fetch("/api/setup/create-admin", {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({ username, password })
+  });
+
+  const data = await res.json();
+
+  if (!res.ok) {
+    document.getElementById("msg").textContent = data.error || "Setup failed.";
+    return;
+  }
+
+  window.location.href = "/";
+}
+</script>
+</body>
+</html>
+  `);
+});
+
 app.get("/", (req, res) => {
   res.send(`
 <!DOCTYPE html>
 <html>
 <head>
-<title>Whitford BMS</title>
+<title>Whitford Building Management System</title>
 <style>
-body { font-family: Arial; background:#101018; color:white; padding:20px; }
-.card { background:#1e1e2e; padding:15px; margin:10px 0; border-radius:10px; }
-button { padding:10px; margin:5px; cursor:pointer; }
-button:disabled { opacity:0.4; cursor:not-allowed; }
-input, select { padding:10px; margin:5px; }
-.alarm { color:#ff4444; font-weight:bold; }
-.normal { color:#44ff88; font-weight:bold; }
+* { box-sizing:border-box; }
+body {
+  margin:0;
+  font-family: Arial, Helvetica, sans-serif;
+  background:#eef0f3;
+  color:#1f2933;
+}
+.bosch-strip {
+  height:6px;
+  background:#e20015;
+}
+.header {
+  height:64px;
+  background:white;
+  border-bottom:1px solid #d8dce2;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:0 24px;
+}
+.logo {
+  font-size:22px;
+  font-weight:bold;
+}
+.logo span {
+  color:#e20015;
+}
+.userbar {
+  color:#6b7280;
+  font-size:14px;
+}
+.layout {
+  display:flex;
+  height:calc(100vh - 70px);
+}
+.sidebar {
+  width:245px;
+  background:#26313f;
+  color:white;
+  padding-top:20px;
+}
+.nav {
+  padding:15px 24px;
+  border-left:4px solid transparent;
+  cursor:pointer;
+}
+.nav:hover, .nav.active {
+  background:#1d2631;
+  border-left-color:#e20015;
+}
+.main {
+  flex:1;
+  padding:24px;
+  overflow:auto;
+}
+.card {
+  background:white;
+  border:1px solid #d8dce2;
+  border-radius:4px;
+  padding:20px;
+  margin-bottom:18px;
+}
+.grid {
+  display:grid;
+  grid-template-columns:repeat(4, 1fr);
+  gap:18px;
+}
+.status-card {
+  background:white;
+  border-top:5px solid #9ca3af;
+  padding:20px;
+  min-height:120px;
+}
+.status-card.alarm {
+  border-top-color:#e20015;
+}
+.status-card.ok {
+  border-top-color:#00884a;
+}
+.status-title {
+  font-size:14px;
+  color:#6b7280;
+}
+.status-value {
+  font-size:28px;
+  margin-top:12px;
+  font-weight:bold;
+}
+button {
+  background:#e20015;
+  color:white;
+  border:0;
+  padding:11px 16px;
+  margin:5px;
+  cursor:pointer;
+  border-radius:3px;
+  font-weight:bold;
+}
+button:disabled {
+  background:#9ca3af;
+  cursor:not-allowed;
+}
+input, select {
+  padding:11px;
+  border:1px solid #c8ccd2;
+  border-radius:3px;
+  min-width:260px;
+}
+.login-box {
+  max-width:420px;
+  margin:90px auto;
+  background:white;
+  padding:34px;
+  box-shadow:0 8px 25px rgba(0,0,0,0.12);
+}
 .hidden { display:none; }
+.alarm-text { color:#e20015; font-weight:bold; }
+.ok-text { color:#00884a; font-weight:bold; }
+.event {
+  padding:10px;
+  border-bottom:1px solid #e5e7eb;
+  font-size:14px;
+}
 </style>
 </head>
 <body>
 
-<h1>Whitford Shopping Centre BMS</h1>
+<div class="bosch-strip"></div>
 
-<div id="loginBox" class="card">
-  <h2>Login</h2>
-  <input id="username" placeholder="Username">
-  <input id="password" placeholder="Password" type="password">
+<div id="loginBox" class="login-box">
+  <h1>Whitford BMS</h1>
+  <p>Building Management System Login</p>
+  <input id="username" placeholder="Username"><br><br>
+  <input id="password" type="password" placeholder="Password"><br><br>
   <button onclick="login()">Login</button>
-  <p id="loginMsg"></p>
+  <p id="loginMsg" class="alarm-text"></p>
+  <p><a href="/setup">First-time setup</a></p>
 </div>
 
 <div id="appBox" class="hidden">
-  <div class="card">
-    <h2>User</h2>
-    <p>Logged in as: <span id="user"></span></p>
-    <p>Role: <span id="role"></span></p>
-    <button onclick="logout()">Logout</button>
+  <div class="header">
+    <div class="logo"><span>Whitford</span> Building Management System</div>
+    <div class="userbar">
+      <span id="user"></span> | <span id="role"></span>
+      <button onclick="logout()">Logout</button>
+    </div>
   </div>
 
-  <div class="card">
-    <h2>System Status</h2>
-    <p>Fire: <span id="fire"></span></p>
-    <p>Controls Locked: <span id="locked"></span></p>
-    <p>Music: <span id="music"></span></p>
-    <p>Current Song: <span id="song"></span></p>
-    <p>Lifts: <span id="lifts"></span></p>
-    <p>Access: <span id="access"></span></p>
-  </div>
+  <div class="layout">
+    <div class="sidebar">
+      <div class="nav active">Dashboard</div>
+      <div class="nav">Fire Alarm</div>
+      <div class="nav">Music</div>
+      <div class="nav">Lifts</div>
+      <div class="nav">Access Control</div>
+      <div class="nav">Event Log</div>
+      <div class="nav">Settings</div>
+    </div>
 
-  <div class="card">
-    <h2>Music Control</h2>
-    <button class="controlBtn" onclick="sendCommand('play')">Play</button>
-    <button class="controlBtn" onclick="sendCommand('pause')">Pause</button>
-    <button class="controlBtn" onclick="sendCommand('stop')">Stop</button>
-    <br><br>
-    <select id="songList"></select>
-    <button class="controlBtn" onclick="playSelected()">Play Selected Song</button>
-  </div>
+    <div class="main">
+      <div class="grid">
+        <div class="status-card" id="fireCard">
+          <div class="status-title">Fire Alarm</div>
+          <div class="status-value" id="fire">---</div>
+        </div>
 
-  <div class="card">
-    <h2>Event Log</h2>
-    <div id="events"></div>
+        <div class="status-card ok">
+          <div class="status-title">Music</div>
+          <div class="status-value" id="music">---</div>
+        </div>
+
+        <div class="status-card ok">
+          <div class="status-title">Lifts</div>
+          <div class="status-value" id="lifts">---</div>
+        </div>
+
+        <div class="status-card ok">
+          <div class="status-title">Access Control</div>
+          <div class="status-value" id="access">---</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>System Lock Status</h2>
+        <p>Controls Locked: <span id="locked"></span></p>
+        <p>Current Song: <span id="song"></span></p>
+      </div>
+
+      <div class="card">
+        <h2>Music Control</h2>
+        <button class="controlBtn" onclick="sendCommand('play')">Play</button>
+        <button class="controlBtn" onclick="sendCommand('pause')">Pause</button>
+        <button class="controlBtn" onclick="sendCommand('stop')">Stop</button>
+        <br><br>
+        <select id="songList"></select>
+        <button class="controlBtn" onclick="playSelected()">Play Selected Song</button>
+      </div>
+
+      <div class="card">
+        <h2>Recent Events</h2>
+        <div id="events"></div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -207,11 +482,11 @@ async function checkLogin() {
 
 async function login() {
   const res = await fetch("/api/auth/login", {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({
-      username: document.getElementById("username").value,
-      password: document.getElementById("password").value
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({
+      username:document.getElementById("username").value,
+      password:document.getElementById("password").value
     })
   });
 
@@ -226,7 +501,7 @@ async function login() {
 }
 
 async function logout() {
-  await fetch("/api/auth/logout", { method: "POST" });
+  await fetch("/api/auth/logout", { method:"POST" });
   currentUser = null;
   checkLogin();
 }
@@ -238,12 +513,14 @@ async function loadState() {
   const data = await res.json();
 
   document.getElementById("fire").textContent = data.fire;
-  document.getElementById("fire").className = data.fire === "alarm" ? "alarm" : "normal";
-  document.getElementById("locked").textContent = data.controlsLocked;
   document.getElementById("music").textContent = data.music;
-  document.getElementById("song").textContent = data.currentSongNumber || "None";
   document.getElementById("lifts").textContent = data.lifts;
   document.getElementById("access").textContent = data.access;
+  document.getElementById("locked").textContent = data.controlsLocked;
+  document.getElementById("song").textContent = data.currentSongNumber || "None";
+
+  const fireCard = document.getElementById("fireCard");
+  fireCard.className = data.fire === "alarm" ? "status-card alarm" : "status-card ok";
 
   document.querySelectorAll(".controlBtn").forEach(btn => {
     btn.disabled = data.controlsLocked || currentUser.role === "operator";
@@ -255,8 +532,8 @@ async function loadSongs() {
 
   const res = await fetch("/api/music/songs");
   const data = await res.json();
-
   const list = document.getElementById("songList");
+
   list.innerHTML = "";
 
   data.songs.forEach(song => {
@@ -274,15 +551,15 @@ async function loadEvents() {
   const data = await res.json();
 
   document.getElementById("events").innerHTML = data.events.map(e => {
-    return "<p><b>" + e.type + "</b> - " + new Date(e.created_at).toLocaleString() + "</p>";
+    return "<div class='event'><b>" + e.type + "</b><br>" + new Date(e.created_at).toLocaleString() + "</div>";
   }).join("");
 }
 
 async function sendCommand(command, songNumber) {
   const res = await fetch("/api/music/command", {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({ command, songNumber })
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({ command, songNumber })
   });
 
   const data = await res.json();
