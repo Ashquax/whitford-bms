@@ -7,7 +7,6 @@ const PgSession = require("connect-pg-simple")(session);
 
 const app = express();
 
-// IMPORTANT FOR RAILWAY LOGIN SESSIONS
 app.set("trust proxy", 1);
 
 app.use(cors());
@@ -60,33 +59,22 @@ let latestCommand = {
 
 function checkSecret(req, res) {
   const secret = req.body.secret || req.query.secret;
-
   if (secret !== SECRET) {
     res.status(403).json({ error: "Bad secret" });
     return false;
   }
-
   return true;
 }
 
 function requireLogin(req, res, next) {
-  if (!req.session.user) {
-    return res.status(401).json({ error: "Not logged in" });
-  }
-
+  if (!req.session.user) return res.status(401).json({ error: "Not logged in" });
   next();
 }
 
 function requireRole(...roles) {
   return (req, res, next) => {
-    if (!req.session.user) {
-      return res.status(401).json({ error: "Not logged in" });
-    }
-
-    if (!roles.includes(req.session.user.role)) {
-      return res.status(403).json({ error: "No permission" });
-    }
-
+    if (!req.session.user) return res.status(401).json({ error: "Not logged in" });
+    if (!roles.includes(req.session.user.role)) return res.status(403).json({ error: "No permission" });
     next();
   };
 }
@@ -133,7 +121,7 @@ app.get("/setup", async (req, res) => {
 <head>
 <title>Setup Complete</title>
 <style>
-body { font-family: Arial; background:#f4f5f7; padding:40px; }
+body { font-family:Arial; background:#f4f5f7; padding:40px; }
 a { color:#e20015; }
 </style>
 </head>
@@ -152,75 +140,28 @@ a { color:#e20015; }
 <head>
 <title>Whitford BMS Setup</title>
 <style>
-body {
-  margin:0;
-  font-family: Arial, Helvetica, sans-serif;
-  background:#f2f3f5;
-  color:#1f2933;
-}
-.topbar {
-  height:6px;
-  background:#e20015;
-}
-.container {
-  max-width:460px;
-  margin:80px auto;
-  background:white;
-  border-radius:4px;
-  box-shadow:0 8px 25px rgba(0,0,0,0.12);
-  padding:34px;
-}
-.brand {
-  font-size:24px;
-  font-weight:bold;
-  margin-bottom:4px;
-}
-.sub {
-  color:#6b7280;
-  margin-bottom:30px;
-}
-input {
-  width:100%;
-  box-sizing:border-box;
-  padding:13px;
-  margin:8px 0 16px;
-  border:1px solid #c8ccd2;
-  border-radius:3px;
-}
-button {
-  width:100%;
-  background:#e20015;
-  color:white;
-  border:0;
-  padding:14px;
-  font-weight:bold;
-  cursor:pointer;
-  border-radius:3px;
-}
-button:hover {
-  background:#b80012;
-}
-.msg {
-  margin-top:15px;
-  color:#e20015;
-}
+body { margin:0; font-family:Arial, Helvetica, sans-serif; background:#f2f3f5; color:#1f2933; }
+.topbar { height:6px; background:#e20015; }
+.container { max-width:460px; margin:80px auto; background:white; border-radius:4px; box-shadow:0 8px 25px rgba(0,0,0,0.12); padding:34px; }
+.brand { font-size:24px; font-weight:bold; margin-bottom:4px; }
+.sub { color:#6b7280; margin-bottom:30px; }
+input { width:100%; box-sizing:border-box; padding:13px; margin:8px 0 16px; border:1px solid #c8ccd2; border-radius:3px; }
+button { width:100%; background:#e20015; color:white; border:0; padding:14px; font-weight:bold; cursor:pointer; border-radius:3px; }
+button:hover { background:#b80012; }
+.msg { margin-top:15px; color:#e20015; }
 </style>
 </head>
 <body>
 <div class="topbar"></div>
-
 <div class="container">
   <div class="brand">Whitford BMS</div>
   <div class="sub">Initial administrator setup</div>
-
   <input id="username" placeholder="Administrator username">
   <input id="password" type="password" placeholder="Password">
   <input id="confirm" type="password" placeholder="Confirm password">
-
   <button onclick="createAdmin()">Create Administrator</button>
   <div class="msg" id="msg"></div>
 </div>
-
 <script>
 async function createAdmin() {
   const username = document.getElementById("username").value.trim();
@@ -266,126 +207,39 @@ app.get("/", (req, res) => {
 <title>Whitford Building Management System</title>
 <style>
 * { box-sizing:border-box; }
-body {
-  margin:0;
-  font-family: Arial, Helvetica, sans-serif;
-  background:#eef0f3;
-  color:#1f2933;
-}
-.bosch-strip {
-  height:6px;
-  background:#e20015;
-}
-.header {
-  height:64px;
-  background:white;
-  border-bottom:1px solid #d8dce2;
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  padding:0 24px;
-}
-.logo {
-  font-size:22px;
-  font-weight:bold;
-}
-.logo span {
-  color:#e20015;
-}
-.userbar {
-  color:#6b7280;
-  font-size:14px;
-}
-.layout {
-  display:flex;
-  height:calc(100vh - 70px);
-}
-.sidebar {
-  width:245px;
-  background:#26313f;
-  color:white;
-  padding-top:20px;
-}
-.nav {
-  padding:15px 24px;
-  border-left:4px solid transparent;
-}
-.nav.active {
-  background:#1d2631;
-  border-left-color:#e20015;
-}
-.main {
-  flex:1;
-  padding:24px;
-  overflow:auto;
-}
-.card {
-  background:white;
-  border:1px solid #d8dce2;
-  border-radius:4px;
-  padding:20px;
-  margin-bottom:18px;
-}
-.grid {
-  display:grid;
-  grid-template-columns:repeat(4, 1fr);
-  gap:18px;
-}
-.status-card {
-  background:white;
-  border-top:5px solid #9ca3af;
-  padding:20px;
-  min-height:120px;
-}
-.status-card.alarm {
-  border-top-color:#e20015;
-}
-.status-card.ok {
-  border-top-color:#00884a;
-}
-.status-title {
-  font-size:14px;
-  color:#6b7280;
-}
-.status-value {
-  font-size:28px;
-  margin-top:12px;
-  font-weight:bold;
-}
-button {
-  background:#e20015;
-  color:white;
-  border:0;
-  padding:11px 16px;
-  margin:5px;
-  cursor:pointer;
-  border-radius:3px;
-  font-weight:bold;
-}
-button:disabled {
-  background:#9ca3af;
-  cursor:not-allowed;
-}
-input, select {
-  padding:11px;
-  border:1px solid #c8ccd2;
-  border-radius:3px;
-  min-width:260px;
-}
-.login-box {
-  max-width:420px;
-  margin:90px auto;
-  background:white;
-  padding:34px;
-  box-shadow:0 8px 25px rgba(0,0,0,0.12);
-}
+body { margin:0; font-family:Arial, Helvetica, sans-serif; background:#eef0f3; color:#1f2933; }
+.bosch-strip { height:6px; background:#e20015; }
+.header { height:64px; background:white; border-bottom:1px solid #d8dce2; display:flex; align-items:center; justify-content:space-between; padding:0 24px; }
+.logo { font-size:22px; font-weight:bold; }
+.logo span { color:#e20015; }
+.userbar { color:#6b7280; font-size:14px; }
+.layout { display:flex; height:calc(100vh - 70px); }
+.sidebar { width:245px; background:#26313f; color:white; padding-top:20px; }
+.nav { padding:15px 24px; border-left:4px solid transparent; cursor:pointer; }
+.nav:hover, .nav.active { background:#1d2631; border-left-color:#e20015; }
+.main { flex:1; padding:24px; overflow:auto; }
+.card { background:white; border:1px solid #d8dce2; border-radius:4px; padding:20px; margin-bottom:18px; }
+.grid { display:grid; grid-template-columns:repeat(4, 1fr); gap:18px; }
+.status-card { background:white; border-top:5px solid #9ca3af; padding:20px; min-height:120px; }
+.status-card.alarm { border-top-color:#e20015; }
+.status-card.ok { border-top-color:#00884a; }
+.status-title { font-size:14px; color:#6b7280; }
+.status-value { font-size:28px; margin-top:12px; font-weight:bold; }
+button { background:#e20015; color:white; border:0; padding:11px 16px; margin:5px; cursor:pointer; border-radius:3px; font-weight:bold; }
+button:disabled { background:#9ca3af; cursor:not-allowed; }
+input, select { padding:11px; border:1px solid #c8ccd2; border-radius:3px; min-width:260px; }
+.login-box { max-width:420px; margin:90px auto; background:white; padding:34px; box-shadow:0 8px 25px rgba(0,0,0,0.12); }
 .hidden { display:none; }
 .alarm-text { color:#e20015; font-weight:bold; }
-.event {
-  padding:10px;
-  border-bottom:1px solid #e5e7eb;
-  font-size:14px;
-}
+.good-text { color:#00884a; font-weight:bold; }
+.event { padding:10px; border-bottom:1px solid #e5e7eb; font-size:14px; }
+.page-title { margin-top:0; }
+.badge { display:inline-block; padding:5px 10px; border-radius:20px; font-size:13px; font-weight:bold; }
+.badge-ok { background:#d9f7e8; color:#00884a; }
+.badge-alarm { background:#ffe1e4; color:#e20015; }
+.table { width:100%; border-collapse:collapse; }
+.table th, .table td { text-align:left; padding:10px; border-bottom:1px solid #e5e7eb; }
+.small { color:#6b7280; font-size:13px; }
 </style>
 </head>
 <body>
@@ -413,64 +267,142 @@ input, select {
 
   <div class="layout">
     <div class="sidebar">
-      <div class="nav active">Dashboard</div>
-      <div class="nav">Fire Alarm</div>
-      <div class="nav">Music</div>
-      <div class="nav">Lifts</div>
-      <div class="nav">Access Control</div>
-      <div class="nav">Event Log</div>
-      <div class="nav">Settings</div>
+      <div class="nav active" onclick="showPage('dashboard', this)">Dashboard</div>
+      <div class="nav" onclick="showPage('fire', this)">Fire Alarm</div>
+      <div class="nav" onclick="showPage('music', this)">Music</div>
+      <div class="nav" onclick="showPage('lifts', this)">Lifts</div>
+      <div class="nav" onclick="showPage('access', this)">Access Control</div>
+      <div class="nav" onclick="showPage('events', this)">Event Log</div>
+      <div class="nav" onclick="showPage('settings', this)">Settings</div>
     </div>
 
     <div class="main">
-      <div class="grid">
-        <div class="status-card" id="fireCard">
-          <div class="status-title">Fire Alarm</div>
-          <div class="status-value" id="fire">---</div>
+
+      <div id="page-dashboard" class="page">
+        <h1 class="page-title">Dashboard</h1>
+        <div class="grid">
+          <div class="status-card" id="fireCard">
+            <div class="status-title">Fire Alarm</div>
+            <div class="status-value" id="fire">---</div>
+          </div>
+          <div class="status-card ok">
+            <div class="status-title">Music</div>
+            <div class="status-value" id="music">---</div>
+          </div>
+          <div class="status-card ok">
+            <div class="status-title">Lifts</div>
+            <div class="status-value" id="lifts">---</div>
+          </div>
+          <div class="status-card ok">
+            <div class="status-title">Access Control</div>
+            <div class="status-value" id="access">---</div>
+          </div>
         </div>
 
-        <div class="status-card ok">
-          <div class="status-title">Music</div>
-          <div class="status-value" id="music">---</div>
+        <div class="card">
+          <h2>System Lock Status</h2>
+          <p>Controls Locked: <span id="locked"></span></p>
+          <p>Current Song: <span id="song"></span></p>
         </div>
 
-        <div class="status-card ok">
-          <div class="status-title">Lifts</div>
-          <div class="status-value" id="lifts">---</div>
-        </div>
-
-        <div class="status-card ok">
-          <div class="status-title">Access Control</div>
-          <div class="status-value" id="access">---</div>
+        <div class="card">
+          <h2>Recent Events</h2>
+          <div id="eventsDash"></div>
         </div>
       </div>
 
-      <div class="card">
-        <h2>System Lock Status</h2>
-        <p>Controls Locked: <span id="locked"></span></p>
-        <p>Current Song: <span id="song"></span></p>
+      <div id="page-fire" class="page hidden">
+        <h1 class="page-title">Fire Alarm Monitoring</h1>
+        <div class="card">
+          <h2>Lumina Fire System</h2>
+          <p>Status: <span id="firePageStatus"></span></p>
+          <p>Controls Locked: <span id="firePageLocked"></span></p>
+          <p class="small">Fire alarm is monitored from Roblox. BMS controls lock automatically during alarm.</p>
+        </div>
+
+        <div class="card">
+          <h2>Zones</h2>
+          <table class="table">
+            <thead><tr><th>Zone</th><th>Status</th><th>Notes</th></tr></thead>
+            <tbody id="zoneTable">
+              <tr><td>Zone 1</td><td><span class="badge badge-ok">Normal</span></td><td>Waiting for Roblox zone data</td></tr>
+              <tr><td>Zone 2</td><td><span class="badge badge-ok">Normal</span></td><td>Waiting for Roblox zone data</td></tr>
+              <tr><td>Zone 3</td><td><span class="badge badge-ok">Normal</span></td><td>Waiting for Roblox zone data</td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
-      <div class="card">
-        <h2>Music Control</h2>
-        <button class="controlBtn" onclick="sendCommand('play')">Play</button>
-        <button class="controlBtn" onclick="sendCommand('pause')">Pause</button>
-        <button class="controlBtn" onclick="sendCommand('stop')">Stop</button>
-        <br><br>
-        <select id="songList"></select>
-        <button class="controlBtn" onclick="playSelected()">Play Selected Song</button>
+      <div id="page-music" class="page hidden">
+        <h1 class="page-title">Music Control</h1>
+        <div class="card">
+          <h2>Playback</h2>
+          <p>Status: <span id="musicPageStatus"></span></p>
+          <p>Current Song: <span id="musicPageSong"></span></p>
+          <button class="controlBtn" onclick="sendCommand('play')">Play</button>
+          <button class="controlBtn" onclick="sendCommand('pause')">Pause</button>
+          <button class="controlBtn" onclick="sendCommand('stop')">Stop</button>
+        </div>
+
+        <div class="card">
+          <h2>Song Library From Roblox</h2>
+          <select id="songList"></select>
+          <button class="controlBtn" onclick="playSelected()">Play Selected Song</button>
+          <p class="small">Songs are uploaded from your Roblox MusicSettings module.</p>
+        </div>
       </div>
 
-      <div class="card">
-        <h2>Recent Events</h2>
-        <div id="events"></div>
+      <div id="page-lifts" class="page hidden">
+        <h1 class="page-title">Lift Monitoring</h1>
+        <div class="card">
+          <h2>Lift System</h2>
+          <p>Status: <span id="liftsPageStatus"></span></p>
+          <p class="small">Roblox lift bridge will send floor, direction, door state, faults, and fire recall here.</p>
+        </div>
       </div>
+
+      <div id="page-access" class="page hidden">
+        <h1 class="page-title">Access Control</h1>
+        <div class="card">
+          <h2>Door System</h2>
+          <p>Status: <span id="accessPageStatus"></span></p>
+          <p class="small">Future door monitoring: locked, unlocked, forced open, held open, and fire release.</p>
+        </div>
+      </div>
+
+      <div id="page-events" class="page hidden">
+        <h1 class="page-title">Event Log</h1>
+        <div class="card">
+          <h2>Latest Events</h2>
+          <div id="events"></div>
+        </div>
+      </div>
+
+      <div id="page-settings" class="page hidden">
+        <h1 class="page-title">Settings</h1>
+        <div class="card">
+          <h2>User Permissions</h2>
+          <p><b>Operator:</b> View only</p>
+          <p><b>Supervisor:</b> Music control</p>
+          <p><b>Administrator:</b> Full access</p>
+          <p class="small">User creation/editing page can be added next.</p>
+        </div>
+      </div>
+
     </div>
   </div>
 </div>
 
 <script>
 let currentUser = null;
+
+function showPage(page, el) {
+  document.querySelectorAll(".page").forEach(p => p.classList.add("hidden"));
+  document.getElementById("page-" + page).classList.remove("hidden");
+
+  document.querySelectorAll(".nav").forEach(n => n.classList.remove("active"));
+  el.classList.add("active");
+}
 
 async function checkLogin() {
   const res = await fetch("/api/auth/me");
@@ -530,6 +462,16 @@ async function loadState() {
   document.getElementById("locked").textContent = data.controlsLocked;
   document.getElementById("song").textContent = data.currentSongNumber || "None";
 
+  document.getElementById("firePageStatus").innerHTML = data.fire === "alarm"
+    ? "<span class='badge badge-alarm'>ALARM</span>"
+    : "<span class='badge badge-ok'>NORMAL</span>";
+
+  document.getElementById("firePageLocked").textContent = data.controlsLocked;
+  document.getElementById("musicPageStatus").textContent = data.music;
+  document.getElementById("musicPageSong").textContent = data.currentSongNumber || "None";
+  document.getElementById("liftsPageStatus").textContent = data.lifts;
+  document.getElementById("accessPageStatus").textContent = data.access;
+
   const fireCard = document.getElementById("fireCard");
   fireCard.className = data.fire === "alarm" ? "status-card alarm" : "status-card ok";
 
@@ -561,9 +503,12 @@ async function loadEvents() {
   const res = await fetch("/api/events");
   const data = await res.json();
 
-  document.getElementById("events").innerHTML = data.events.map(e => {
+  const html = data.events.map(e => {
     return "<div class='event'><b>" + e.type + "</b><br>" + new Date(e.created_at).toLocaleString() + "</div>";
   }).join("");
+
+  document.getElementById("events").innerHTML = html;
+  document.getElementById("eventsDash").innerHTML = html;
 }
 
 async function sendCommand(command, songNumber) {
@@ -619,22 +564,13 @@ app.post("/api/setup/create-admin", async (req, res) => {
 app.post("/api/auth/login", async (req, res) => {
   const { username, password } = req.body;
 
-  const result = await pool.query(
-    "SELECT * FROM users WHERE username = $1",
-    [username]
-  );
-
+  const result = await pool.query("SELECT * FROM users WHERE username = $1", [username]);
   const user = result.rows[0];
 
-  if (!user) {
-    return res.status(401).json({ error: "Invalid username or password" });
-  }
+  if (!user) return res.status(401).json({ error: "Invalid username or password" });
 
   const ok = await bcrypt.compare(password, user.password_hash);
-
-  if (!ok) {
-    return res.status(401).json({ error: "Invalid username or password" });
-  }
+  if (!ok) return res.status(401).json({ error: "Invalid username or password" });
 
   req.session.user = {
     id: user.id,
@@ -664,10 +600,7 @@ app.get("/api/music/songs", requireLogin, (req, res) => {
 });
 
 app.get("/api/events", requireLogin, async (req, res) => {
-  const result = await pool.query(
-    "SELECT * FROM event_log ORDER BY id DESC LIMIT 50"
-  );
-
+  const result = await pool.query("SELECT * FROM event_log ORDER BY id DESC LIMIT 50");
   res.json({ events: result.rows });
 });
 
