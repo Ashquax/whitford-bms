@@ -319,18 +319,6 @@ input, select { padding:11px; border:1px solid #c8ccd2; border-radius:3px; min-w
           <p>Controls Locked: <span id="firePageLocked"></span></p>
           <p class="small">Fire alarm is monitored from Roblox. BMS controls lock automatically during alarm.</p>
         </div>
-
-        <div class="card">
-          <h2>Zones</h2>
-          <table class="table">
-            <thead><tr><th>Zone</th><th>Status</th><th>Notes</th></tr></thead>
-            <tbody id="zoneTable">
-              <tr><td>Zone 1</td><td><span class="badge badge-ok">Normal</span></td><td>Waiting for Roblox zone data</td></tr>
-              <tr><td>Zone 2</td><td><span class="badge badge-ok">Normal</span></td><td>Waiting for Roblox zone data</td></tr>
-              <tr><td>Zone 3</td><td><span class="badge badge-ok">Normal</span></td><td>Waiting for Roblox zone data</td></tr>
-            </tbody>
-          </table>
-        </div>
       </div>
 
       <div id="page-music" class="page hidden">
@@ -348,7 +336,7 @@ input, select { padding:11px; border:1px solid #c8ccd2; border-radius:3px; min-w
           <h2>Song Library From Roblox</h2>
           <select id="songList"></select>
           <button class="controlBtn" onclick="playSelected()">Play Selected Song</button>
-          <p class="small">Songs are uploaded from your Roblox MusicSettings module.</p>
+          <p class="small">Songs are uploaded from your Roblox MusicSettings module. The list no longer auto-refreshes, so it will not jump back to song 1.</p>
         </div>
       </div>
 
@@ -357,7 +345,6 @@ input, select { padding:11px; border:1px solid #c8ccd2; border-radius:3px; min-w
         <div class="card">
           <h2>Lift System</h2>
           <p>Status: <span id="liftsPageStatus"></span></p>
-          <p class="small">Roblox lift bridge will send floor, direction, door state, faults, and fire recall here.</p>
         </div>
       </div>
 
@@ -366,7 +353,6 @@ input, select { padding:11px; border:1px solid #c8ccd2; border-radius:3px; min-w
         <div class="card">
           <h2>Door System</h2>
           <p>Status: <span id="accessPageStatus"></span></p>
-          <p class="small">Future door monitoring: locked, unlocked, forced open, held open, and fire release.</p>
         </div>
       </div>
 
@@ -385,7 +371,6 @@ input, select { padding:11px; border:1px solid #c8ccd2; border-radius:3px; min-w
           <p><b>Operator:</b> View only</p>
           <p><b>Supervisor:</b> Music control</p>
           <p><b>Administrator:</b> Full access</p>
-          <p class="small">User creation/editing page can be added next.</p>
         </div>
       </div>
 
@@ -402,6 +387,10 @@ function showPage(page, el) {
 
   document.querySelectorAll(".nav").forEach(n => n.classList.remove("active"));
   el.classList.add("active");
+
+  if (page === "music") {
+    loadSongs();
+  }
 }
 
 async function checkLogin() {
@@ -418,6 +407,7 @@ async function checkLogin() {
     loadSongs();
     loadEvents();
   } else {
+    currentUser = null;
     document.getElementById("loginBox").classList.remove("hidden");
     document.getElementById("appBox").classList.add("hidden");
   }
@@ -483,9 +473,11 @@ async function loadState() {
 async function loadSongs() {
   if (!currentUser) return;
 
+  const list = document.getElementById("songList");
+  const oldValue = list.value;
+
   const res = await fetch("/api/music/songs");
   const data = await res.json();
-  const list = document.getElementById("songList");
 
   list.innerHTML = "";
 
@@ -495,6 +487,10 @@ async function loadSongs() {
     opt.textContent = song.number + " - " + song.id + " Pitch: " + song.pitch;
     list.appendChild(opt);
   });
+
+  if (oldValue) {
+    list.value = oldValue;
+  }
 }
 
 async function loadEvents() {
@@ -522,6 +518,7 @@ async function sendCommand(command, songNumber) {
 
   if (!res.ok) {
     alert(data.error || "Command failed");
+    return;
   }
 
   loadState();
@@ -534,8 +531,8 @@ function playSelected() {
 }
 
 checkLogin();
+
 setInterval(loadState, 1000);
-setInterval(loadSongs, 10000);
 setInterval(loadEvents, 5000);
 </script>
 
