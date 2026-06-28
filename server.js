@@ -7,6 +7,9 @@ const PgSession = require("connect-pg-simple")(session);
 
 const app = express();
 
+// IMPORTANT FOR RAILWAY LOGIN SESSIONS
+app.set("trust proxy", 1);
+
 app.use(cors());
 app.use(express.json());
 
@@ -31,7 +34,7 @@ app.use(session({
   cookie: {
     maxAge: 1000 * 60 * 60 * 8,
     httpOnly: true,
-    secure: true,
+    secure: process.env.NODE_ENV === "production",
     sameSite: "lax"
   }
 }));
@@ -125,11 +128,21 @@ app.get("/setup", async (req, res) => {
 
   if (Number(count.rows[0].count) > 0) {
     return res.send(`
-      <body style="font-family:Arial;background:#f4f5f7;padding:40px">
-        <h1>Setup already completed</h1>
-        <p>The administrator account has already been created.</p>
-        <a href="/">Go to login</a>
-      </body>
+<!DOCTYPE html>
+<html>
+<head>
+<title>Setup Complete</title>
+<style>
+body { font-family: Arial; background:#f4f5f7; padding:40px; }
+a { color:#e20015; }
+</style>
+</head>
+<body>
+<h1>Setup already completed</h1>
+<p>The administrator account has already been created.</p>
+<a href="/">Go to login</a>
+</body>
+</html>
     `);
   }
 
@@ -296,9 +309,8 @@ body {
 .nav {
   padding:15px 24px;
   border-left:4px solid transparent;
-  cursor:pointer;
 }
-.nav:hover, .nav.active {
+.nav.active {
   background:#1d2631;
   border-left-color:#e20015;
 }
@@ -369,7 +381,6 @@ input, select {
 }
 .hidden { display:none; }
 .alarm-text { color:#e20015; font-weight:bold; }
-.ok-text { color:#00884a; font-weight:bold; }
 .event {
   padding:10px;
   border-bottom:1px solid #e5e7eb;
@@ -497,7 +508,7 @@ async function login() {
     return;
   }
 
-  checkLogin();
+  await checkLogin();
 }
 
 async function logout() {
@@ -750,8 +761,13 @@ app.post("/api/roblox/lifts/state", async (req, res) => {
   res.json({ ok: true, state: bmsState });
 });
 
-initDb().then(() => {
-  app.listen(PORT, () => {
-    console.log("Whitford BMS running on port", PORT);
+initDb()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log("Whitford BMS running on port", PORT);
+    });
+  })
+  .catch((err) => {
+    console.error("Failed to start BMS:", err);
+    process.exit(1);
   });
-});
