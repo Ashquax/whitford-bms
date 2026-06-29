@@ -39,6 +39,7 @@ app.use(session({
 }));
 
 let bmsState = {
+   
     fire: "normal",
     controlsLocked: false,
     music: "stopped",
@@ -46,8 +47,12 @@ let bmsState = {
     currentSongId: null,
     lifts: "normal",
     access: "normal",
+    fireLive: "offline",
+fireDevices: [],
+fireZones: [],
     activeFire: null,
     fireEvents: [],
+    
 };
 
 let songs = [];
@@ -808,6 +813,20 @@ app.get("/api/roblox/access/command", (req, res) => {
     if (!checkSecret(req, res)) return;
 
     res.json(latestAccessCommand);
+});
+app.post("/api/roblox/fire/live", async (req, res) => {
+  if (!checkSecret(req, res)) return;
+
+  bmsState.fireLive = req.body.fireLive || "online";
+  bmsState.fireDevices = req.body.devices || [];
+  bmsState.fireZones = req.body.zones || [];
+
+  await logEvent("fire_live_update", {
+    devices: bmsState.fireDevices.length,
+    zones: bmsState.fireZones.length
+  });
+
+  res.json({ ok: true, state: bmsState });
 });
 
 app.post("/api/roblox/fire/active", async (req, res) => {
