@@ -352,6 +352,25 @@ input, select { padding:11px; border:1px solid #c8ccd2; border-radius:3px; min-w
         <div class="card">
           <h2>Lift System</h2>
           <p>Status: <span id="liftsPageStatus"></span></p>
+          <table class="table">
+  <thead>
+    <tr>
+      <th>Lift</th>
+      <th>Group</th>
+      <th>Floor</th>
+      <th>Direction</th>
+      <th>Doors</th>
+      <th>Status</th>
+      <th>Fire Recall</th>
+      <th>Served Floors</th>
+    </tr>
+  </thead>
+  <tbody id="liftTable">
+    <tr>
+      <td colspan="8">Waiting for lift data...</td>
+    </tr>
+  </tbody>
+</table>
         </div>
       </div>
 <div id="page-access" class="page hidden">
@@ -485,6 +504,30 @@ async function loadState() {
   document.getElementById("musicPageStatus").textContent = data.music;
   document.getElementById("musicPageSong").textContent = data.currentSongNumber || "None";
   document.getElementById("liftsPageStatus").textContent = data.lifts;
+  const liftTable = document.getElementById("liftTable");
+
+if (Array.isArray(data.liftData) && data.liftData.length > 0) {
+  liftTable.innerHTML = data.liftData.map(lift => {
+    return `
+      <tr>
+        <td>${lift.name || "Unknown"}</td>
+        <td>${lift.group || "Ungrouped"}</td>
+        <td>${lift.floor || "Unknown"}</td>
+        <td>${lift.direction || "Idle"}</td>
+        <td>${lift.doors || "Unknown"}</td>
+        <td>${lift.status || "Normal"}</td>
+        <td>${lift.fireRecall ? "Yes" : "No"}</td>
+        <td>${lift.servedFloors || "Unknown"}</td>
+      </tr>
+    `;
+  }).join("");
+} else {
+  liftTable.innerHTML = `
+    <tr>
+      <td colspan="8">No lift data received yet.</td>
+    </tr>
+  `;
+}
   document.getElementById("accessPageStatus").textContent = data.access;
 
   const fireCard = document.getElementById("fireCard");
