@@ -477,6 +477,12 @@ async function loadState() {
   if (!currentUser) return;
 
   const res = await fetch("/api/state");
+
+  if (!res.ok) {
+    console.warn("State failed:", res.status);
+    return;
+  }
+
   const data = await res.json();
 
   document.getElementById("fire").textContent = data.fire;
@@ -491,51 +497,54 @@ async function loadState() {
     : "<span class='badge badge-ok'>NORMAL</span>";
 
   document.getElementById("firePageLocked").textContent = data.controlsLocked;
+
   if (data.activeFire) {
-  document.getElementById("zoneTable").innerHTML =
-    "<tr><td>Zone " + data.activeFire.zone + "</td><td><span class='badge badge-alarm'>ALARM</span></td><td>" +
-    data.activeFire.deviceName + " | " +
-    data.activeFire.location + " | " +
-    data.activeFire.loop + " | " +
-    data.activeFire.node + " | Serial " +
-    data.activeFire.serialNumber +
-    "</td></tr>";
-}
+    document.getElementById("zoneTable").innerHTML =
+      "<tr><td>Zone " + data.activeFire.zone + "</td><td><span class='badge badge-alarm'>ALARM</span></td><td>" +
+      data.activeFire.deviceName + " | " +
+      data.activeFire.location + " | " +
+      data.activeFire.loop + " | " +
+      data.activeFire.node + " | Serial " +
+      data.activeFire.serialNumber +
+      "</td></tr>";
+  } else {
+    document.getElementById("zoneTable").innerHTML =
+      "<tr><td>Zone 1</td><td><span class='badge badge-ok'>Normal</span></td><td>No active fire alarm</td></tr>";
+  }
+
   document.getElementById("musicPageStatus").textContent = data.music;
   document.getElementById("musicPageSong").textContent = data.currentSongNumber || "None";
   document.getElementById("liftsPageStatus").textContent = data.lifts;
+
   const liftTable = document.getElementById("liftTable");
 
-if (Array.isArray(data.liftData) && data.liftData.length > 0) {
-  liftTable.innerHTML = data.liftData.map(lift => {
-    return `
-      <tr>
-        <td>${lift.name || "Unknown"}</td>
-        <td>${lift.group || "Ungrouped"}</td>
-        <td>${lift.floor || "Unknown"}</td>
-        <td>${lift.direction || "Idle"}</td>
-        <td>${lift.doors || "Unknown"}</td>
-        <td>${lift.status || "Normal"}</td>
-        <td>${lift.fireRecall ? "Yes" : "No"}</td>
-        <td>${lift.servedFloors || "Unknown"}</td>
-      </tr>
-    `;
-  }).join("");
-} else {
-  liftTable.innerHTML = `
-    <tr>
-      <td colspan="8">No lift data received yet.</td>
-    </tr>
-  `;
-}
+  if (liftTable) {
+    if (Array.isArray(data.liftData) && data.liftData.length > 0) {
+      liftTable.innerHTML = data.liftData.map(function(lift) {
+        return "<tr>" +
+          "<td>" + (lift.name || "Unknown") + "</td>" +
+          "<td>" + (lift.group || "Ungrouped") + "</td>" +
+          "<td>" + (lift.floor || "Unknown") + "</td>" +
+          "<td>" + (lift.direction || "Idle") + "</td>" +
+          "<td>" + (lift.doors || "Unknown") + "</td>" +
+          "<td>" + (lift.status || "Normal") + "</td>" +
+          "<td>" + (lift.fireRecall ? "Yes" : "No") + "</td>" +
+          "<td>" + (lift.servedFloors || "Unknown") + "</td>" +
+        "</tr>";
+      }).join("");
+    } else {
+      liftTable.innerHTML = "<tr><td colspan='8'>No lift data received yet.</td></tr>";
+    }
+  }
+
   document.getElementById("accessPageStatus").textContent = data.access;
 
   const fireCard = document.getElementById("fireCard");
   fireCard.className = data.fire === "alarm" ? "status-card alarm" : "status-card ok";
 
-  document.querySelectorAll(".controlBtn").forEach(btn => {
-  btn.disabled = data.controlsLocked || !currentUser || currentUser.role === "operator";
-});
+  document.querySelectorAll(".controlBtn").forEach(function(btn) {
+    btn.disabled = data.controlsLocked || !currentUser || currentUser.role === "operator";
+  });
 }
 
 async function loadSongs() {
