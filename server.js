@@ -491,8 +491,8 @@ async function loadState() {
   fireCard.className = data.fire === "alarm" ? "status-card alarm" : "status-card ok";
 
   document.querySelectorAll(".controlBtn").forEach(btn => {
-    btn.disabled = data.controlsLocked || currentUser.role === "operator";
-  });
+  btn.disabled = data.controlsLocked || !currentUser || currentUser.role === "operator";
+});
 }
 
 async function loadSongs() {
