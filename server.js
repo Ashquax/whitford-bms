@@ -22,11 +22,22 @@ const pool = new Pool({
 });
 
 app.use(session({f
+app.use(session({
   store: new PgSession({
     pool,
     tableName: "user_sessions",
     createTableIfMissing: true
   }),
+  secret: SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    maxAge: 1000 * 60 * 60 * 8,
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax"
+  }
+}));
   secret: SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
