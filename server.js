@@ -21,7 +21,7 @@ const pool = new Pool({
   ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
 });
 
-app.use(session({
+app.use(session({f
   store: new PgSession({
     pool,
     tableName: "user_sessions",
@@ -225,8 +225,9 @@ async function createAdmin() {
   `);
 });
 
-app.get("/", (req, res) => {
-  res.send(`
+</body>
+`);
+});
 <!DOCTYPE html>
 <html>
 <head>
