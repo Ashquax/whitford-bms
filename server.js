@@ -46,7 +46,7 @@ let bmsState = {
     currentSongId: null,
     lifts: "normal",
     access: "normal",
-  activeFire: null,
+    activeFire: null,
     fireEvents: [],
 };
 
@@ -354,23 +354,22 @@ input, select { padding:11px; border:1px solid #c8ccd2; border-radius:3px; min-w
           <p>Status: <span id="liftsPageStatus"></span></p>
         </div>
       </div>
+<div id="page-access" class="page hidden">
+  <h1 class="page-title">Access Control</h1>
 
-      <div id="page-access" class="page hidden">
-        <h1 class="page-title">Access Control</h1>
-        <div class="card">
-          <h2>Door System</h2>
-          <p>Status: <span id="accessPageStatus"></span></p>
-          
-        </div>
-        <button class="controlBtn" onclick="sendAccess('lock')">Lock All Doors</button>
-<button class="controlBtn" onclick="sendAccess('unlock')">Unlock All Doors</button>
-<button class="controlBtn" onclick="sendAccess('hold_open')">Hold Open</button>
-<button class="controlBtn" onclick="sendAccess('release_hold')">Release Hold</button>
-<button class="controlBtn" onclick="sendAccess('fire')">Fire Release</button>
-<button class="controlBtn" onclick="sendAccess('reset')">Reset Releases</button>
-<button class="controlBtn" onclick="sendAccess('open', 10)">Open 10 Seconds</button>
-        <div id="page-access" class="page hidden">
-      </div>
+  <div class="card">
+    <h2>Door System</h2>
+    <p>Status: <span id="accessPageStatus"></span></p>
+
+    <button class="controlBtn" onclick="sendAccess('lock')">Lock All Doors</button>
+    <button class="controlBtn" onclick="sendAccess('unlock')">Unlock All Doors</button>
+    <button class="controlBtn" onclick="sendAccess('hold_open')">Hold Open</button>
+    <button class="controlBtn" onclick="sendAccess('release_hold')">Release Hold</button>
+    <button class="controlBtn" onclick="sendAccess('fire')">Fire Release</button>
+    <button class="controlBtn" onclick="sendAccess('reset')">Reset Releases</button>
+    <button class="controlBtn" onclick="sendAccess('open', 10)">Open 10 Seconds</button>
+  </div>
+</div>
 
       <div id="page-events" class="page hidden">
         <h1 class="page-title">Event Log</h1>
@@ -535,11 +534,11 @@ async function loadEvents() {
 
 async function sendCommand(command, songNumber) {
   const res = await fetch("/api/music/command", {
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({ command, songNumber })
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ command, songNumber })
   });
-async function sendAccess(command, value) { const res = await fetch("/api/access/command", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ command, value }) }); const data = await res.json(); if (!res.ok) { alert(data.error || "Access command failed"); return; } loadState(); loadEvents(); }
+
   const data = await res.json();
 
   if (!res.ok) {
@@ -550,6 +549,27 @@ async function sendAccess(command, value) { const res = await fetch("/api/access
   loadState();
   loadEvents();
 }
+
+async function sendAccess(command, value) {
+  console.log("Access button clicked:", command, value);
+
+  const res = await fetch("/api/access/command", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ command, value })
+  });
+
+  const data = await res.json();
+
+  if (!res.ok) {
+    alert(data.error || "Access command failed");
+    return;
+  }
+
+  loadState();
+  loadEvents();
+}
+
 
 function playSelected() {
   const num = document.getElementById("songList").value;
