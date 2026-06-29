@@ -5,21 +5,27 @@ const bcrypt = require("bcrypt");
 const session = require("express-session");
 const PgSession = require("connect-pg-simple")(session);
 
-const app = express();
-
-app.set("trust proxy", 1);
-
-app.use(cors());
-app.use(express.json());
-
-const PORT = process.env.PORT || 8080;
-const SECRET = process.env.BMS_SECRET || "CHANGE_THIS_SECRET";
-const SESSION_SECRET = process.env.SESSION_SECRET || "CHANGE_THIS_SESSION_SECRET";
-
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
 });
+
+app.use(session({
+  store: new PgSession({
+    pool,
+    tableName: "user_sessions",
+    createTableIfMissing: true
+  }),
+  secret: SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    maxAge: 1000 * 60 * 60 * 8,
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax"
+  }
+}));
 
 app.use(session({f
 app.use(session({
