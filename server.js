@@ -58,6 +58,11 @@ let latestCommand = {
     songNumber: null,
     controlsLocked: false
 };
+let latestAccessCommand = {
+    id: 0,
+    command: "none",
+    value: null
+};
 
 function checkSecret(req, res) {
     const secret = req.body.secret || req.query.secret;
@@ -355,7 +360,16 @@ input, select { padding:11px; border:1px solid #c8ccd2; border-radius:3px; min-w
         <div class="card">
           <h2>Door System</h2>
           <p>Status: <span id="accessPageStatus"></span></p>
+          
         </div>
+        <button class="controlBtn" onclick="sendAccess('lock')">Lock All Doors</button>
+<button class="controlBtn" onclick="sendAccess('unlock')">Unlock All Doors</button>
+<button class="controlBtn" onclick="sendAccess('hold_open')">Hold Open</button>
+<button class="controlBtn" onclick="sendAccess('release_hold')">Release Hold</button>
+<button class="controlBtn" onclick="sendAccess('fire')">Fire Release</button>
+<button class="controlBtn" onclick="sendAccess('reset')">Reset Releases</button>
+<button class="controlBtn" onclick="sendAccess('open', 10)">Open 10 Seconds</button>
+        <div id="page-access" class="page hidden">
       </div>
 
       <div id="page-events" class="page hidden">
@@ -525,7 +539,7 @@ async function sendCommand(command, songNumber) {
     headers:{"Content-Type":"application/json"},
     body:JSON.stringify({ command, songNumber })
   });
-
+async function sendAccess(command, value) { const res = await fetch("/api/access/command", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ command, value }) }); const data = await res.json(); if (!res.ok) { alert(data.error || "Access command failed"); return; } loadState(); loadEvents(); }
   const data = await res.json();
 
   if (!res.ok) {
@@ -657,6 +671,31 @@ app.post("/api/roblox/music/state", async (req, res) => {
 
     await logEvent("music_state", req.body);
     res.json({ ok: true, state: bmsState });
+});
+app.post("/api/access/command", requireRole("supervisor", "administrator"), async (req, res) => {
+    if (bmsState.controlsLocked) {
+        return res.status(423).json({ error: "Controls locked by fire alarm" });
+    }
+
+    latestAccessCommand = {
+        id: Date.now(),
+        command: req.body.command,
+        value: req.body.value || null
+    };
+
+    await logEvent("access_command", {
+        user: req.session.user.username,
+        role: req.session.user.role,
+        command: latestAccessCommand
+    });
+
+    res.json({ ok: true, command: latestAccessCommand });
+});
+
+app.get("/api/roblox/access/command", (req, res) => {
+    if (!checkSecret(req, res)) return;
+
+    res.json(latestAccessCommand);
 });
 
 app.post("/api/roblox/fire/active", async (req, res) => {
