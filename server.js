@@ -17,82 +17,97 @@ const SECRET = process.env.BMS_SECRET || "CHANGE_THIS_SECRET";
 const SESSION_SECRET = process.env.SESSION_SECRET || "CHANGE_THIS_SESSION_SECRET";
 
 const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
 });
 
 app.use(session({
-    store: new PgSession({
-        pool,
-        tableName: "user_sessions",
-        createTableIfMissing: true
-    }),
-    secret: SESSION_SECRET,
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-        maxAge: 1000 * 60 * 60 * 8,
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax"
-    }
+  store: new PgSession({
+    pool,
+    tableName: "user_sessions",
+    createTableIfMissing: true
+  }),
+  secret: SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    maxAge: 1000 * 60 * 60 * 8,
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax"
+  }
 }));
 
 let bmsState = {
-   
-    fire: "normal",
-    controlsLocked: false,
-    music: "stopped",
-    currentSongNumber: null,
-    currentSongId: null,
-    lifts: "normal",
-    access: "normal",
-    fireLive: "offline",
-fireDevices: [],
-fireZones: [],
-    activeFire: null,
-    fireEvents: [],
-    
+  fire: "normal",
+  controlsLocked: false,
+
+  music: "stopped",
+  currentSongNumber: null,
+  currentSongId: null,
+
+  lifts: "normal",
+  liftData: [],
+
+  access: "normal",
+
+  fireLive: "offline",
+  fireDevices: [],
+  fireZones: [],
+  activeFire: null,
+  fireEvents: []
 };
 
 let songs = [];
 
 let latestCommand = {
-    id: 0,
-    command: "none",
-    songNumber: null,
-    controlsLocked: false
+  id: 0,
+  command: "none",
+  songNumber: null,
+  controlsLocked: false
 };
+
 let latestAccessCommand = {
-    id: 0,
-    command: "none",
-    value: null
+  id: 0,
+  command: "none",
+  value: null
 };
 
 function checkSecret(req, res) {
-    const secret = req.body.secret || req.query.secret;
-    if (secret !== SECRET) {
-        res.status(403).json({ error: "Bad secret" });
-        return false;
-    }
-    return true;
+  const secret = req.body.secret || req.query.secret;
+
+  if (secret !== SECRET) {
+    res.status(403).json({ error: "Bad secret" });
+    return false;
+  }
+
+  return true;
 }
 
 function requireLogin(req, res, next) {
-    if (!req.session.user) return res.status(401).json({ error: "Not logged in" });
-    next();
+  if (!req.session.user) {
+    return res.status(401).json({ error: "Not logged in" });
+  }
+
+  next();
 }
 
 function requireRole(...roles) {
-    return (req, res, next) => {
-        if (!req.session.user) return res.status(401).json({ error: "Not logged in" });
-        if (!roles.includes(req.session.user.role)) return res.status(403).json({ error: "No permission" });
-        next();
-    };
+  return (req, res, next) => {
+    if (!req.session.user) {
+      return res.status(401).json({ error: "Not logged in" });
+    }
+
+    if (!roles.includes(req.session.user.role)) {
+      return res.status(403).json({ error: "No permission" });
+    }
+
+    next();
+  };
 }
 
 async function initDb() {
-    await pool.query(`
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS event_log (
       id SERIAL PRIMARY KEY,
       type TEXT NOT NULL,
@@ -101,7 +116,7 @@ async function initDb() {
     )
   `);
 
-    await pool.query(`
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
       username TEXT UNIQUE NOT NULL,
@@ -113,21 +128,20 @@ async function initDb() {
 }
 
 async function logEvent(type, data) {
-    try {
-        await pool.query(
-            "INSERT INTO event_log (type, data) VALUES ($1, $2)",
-            [type, data]
-        );
-    } catch (err) {
-        console.error("Log error:", err);
-    }
+  try {
+    await pool.query(
+      "INSERT INTO event_log (type, data) VALUES ($1, $2)",
+      [type, data]
+    );
+  } catch (err) {
+    console.error("Log error:", err);
+  }
 }
-
 app.get("/setup", async (req, res) => {
-    const count = await pool.query("SELECT COUNT(*) FROM users");
+  const count = await pool.query("SELECT COUNT(*) FROM users");
 
-    if (Number(count.rows[0].count) > 0) {
-        return res.send(`
+  if (Number(count.rows[0].count) > 0) {
+    return res.send(`
 <!DOCTYPE html>
 <html>
 <head>
@@ -144,9 +158,9 @@ a { color:#e20015; }
 </body>
 </html>
     `);
-    }
+  }
 
-    res.send(`
+  res.send(`
 <!DOCTYPE html>
 <html>
 <head>
@@ -212,7 +226,7 @@ async function createAdmin() {
 });
 
 app.get("/", (req, res) => {
-    res.send(`
+  res.send(`
 <!DOCTYPE html>
 <html>
 <head>
@@ -235,6 +249,7 @@ body { margin:0; font-family:Arial, Helvetica, sans-serif; background:#eef0f3; c
 .status-card { background:white; border-top:5px solid #9ca3af; padding:20px; min-height:120px; }
 .status-card.alarm { border-top-color:#e20015; }
 .status-card.ok { border-top-color:#00884a; }
+.status-card.warning { border-top-color:#f59e0b; }
 .status-title { font-size:14px; color:#6b7280; }
 .status-value { font-size:28px; margin-top:12px; font-weight:bold; }
 button { background:#e20015; color:white; border:0; padding:11px 16px; margin:5px; cursor:pointer; border-radius:3px; font-weight:bold; }
@@ -249,9 +264,74 @@ input, select { padding:11px; border:1px solid #c8ccd2; border-radius:3px; min-w
 .badge { display:inline-block; padding:5px 10px; border-radius:20px; font-size:13px; font-weight:bold; }
 .badge-ok { background:#d9f7e8; color:#00884a; }
 .badge-alarm { background:#ffe1e4; color:#e20015; }
+.badge-warning { background:#fff3cd; color:#a16207; }
+.alarm-row { background:#ffe1e4; font-weight:bold; }
 .table { width:100%; border-collapse:collapse; }
 .table th, .table td { text-align:left; padding:10px; border-bottom:1px solid #e5e7eb; }
 .small { color:#6b7280; font-size:13px; }
+.status-ribbon { display:flex; gap:12px; padding:12px 24px; background:#111827; color:white; border-bottom:1px solid #374151; }
+.ribbon-item { padding:8px 14px; border-radius:20px; font-weight:bold; font-size:13px; background:#374151; }
+.ribbon-ok { background:#00884a; }
+.ribbon-alarm { background:#e20015; }
+.ribbon-warning { background:#f59e0b; }
+.big-alarm-banner { display:none; background:#e20015; color:white; padding:22px; font-size:24px; font-weight:bold; margin-bottom:20px; border-radius:4px; animation:pulseAlarm 1s infinite; }
+@keyframes pulseAlarm { 0% { opacity:1; } 50% { opacity:0.75; } 100% { opacity:1; } }
+</style>
+</head>
+<body>
+`);
+});
+app.get("/", (req, res) => {
+  res.send(`
+<!DOCTYPE html>
+<html>
+<head>
+<title>Whitford Building Management System</title>
+<style>
+* { box-sizing:border-box; }
+body { margin:0; font-family:Arial, Helvetica, sans-serif; background:#eef0f3; color:#1f2933; }
+.bosch-strip { height:6px; background:#e20015; }
+.header { height:64px; background:white; border-bottom:1px solid #d8dce2; display:flex; align-items:center; justify-content:space-between; padding:0 24px; }
+.logo { font-size:22px; font-weight:bold; }
+.logo span { color:#e20015; }
+.userbar { color:#6b7280; font-size:14px; }
+.layout { display:flex; height:calc(100vh - 70px); }
+.sidebar { width:245px; background:#26313f; color:white; padding-top:20px; }
+.nav { padding:15px 24px; border-left:4px solid transparent; cursor:pointer; }
+.nav:hover, .nav.active { background:#1d2631; border-left-color:#e20015; }
+.main { flex:1; padding:24px; overflow:auto; }
+.card { background:white; border:1px solid #d8dce2; border-radius:4px; padding:20px; margin-bottom:18px; }
+.grid { display:grid; grid-template-columns:repeat(4, 1fr); gap:18px; }
+.status-card { background:white; border-top:5px solid #9ca3af; padding:20px; min-height:120px; }
+.status-card.alarm { border-top-color:#e20015; }
+.status-card.ok { border-top-color:#00884a; }
+.status-card.warning { border-top-color:#f59e0b; }
+.status-title { font-size:14px; color:#6b7280; }
+.status-value { font-size:28px; margin-top:12px; font-weight:bold; }
+button { background:#e20015; color:white; border:0; padding:11px 16px; margin:5px; cursor:pointer; border-radius:3px; font-weight:bold; }
+button:disabled { background:#9ca3af; cursor:not-allowed; }
+input, select { padding:11px; border:1px solid #c8ccd2; border-radius:3px; min-width:260px; }
+.login-box { max-width:420px; margin:90px auto; background:white; padding:34px; box-shadow:0 8px 25px rgba(0,0,0,0.12); }
+.hidden { display:none; }
+.alarm-text { color:#e20015; font-weight:bold; }
+.good-text { color:#00884a; font-weight:bold; }
+.event { padding:10px; border-bottom:1px solid #e5e7eb; font-size:14px; }
+.page-title { margin-top:0; }
+.badge { display:inline-block; padding:5px 10px; border-radius:20px; font-size:13px; font-weight:bold; }
+.badge-ok { background:#d9f7e8; color:#00884a; }
+.badge-alarm { background:#ffe1e4; color:#e20015; }
+.badge-warning { background:#fff3cd; color:#a16207; }
+.alarm-row { background:#ffe1e4; font-weight:bold; }
+.table { width:100%; border-collapse:collapse; }
+.table th, .table td { text-align:left; padding:10px; border-bottom:1px solid #e5e7eb; }
+.small { color:#6b7280; font-size:13px; }
+.status-ribbon { display:flex; gap:12px; padding:12px 24px; background:#111827; color:white; border-bottom:1px solid #374151; }
+.ribbon-item { padding:8px 14px; border-radius:20px; font-weight:bold; font-size:13px; background:#374151; }
+.ribbon-ok { background:#00884a; }
+.ribbon-alarm { background:#e20015; }
+.ribbon-warning { background:#f59e0b; }
+.big-alarm-banner { display:none; background:#e20015; color:white; padding:22px; font-size:24px; font-weight:bold; margin-bottom:20px; border-radius:4px; animation:pulseAlarm 1s infinite; }
+@keyframes pulseAlarm { 0% { opacity:1; } 50% { opacity:0.75; } 100% { opacity:1; } }
 </style>
 </head>
 <body>
@@ -277,6 +357,14 @@ input, select { padding:11px; border:1px solid #c8ccd2; border-radius:3px; min-w
     </div>
   </div>
 
+  <div class="status-ribbon">
+    <div class="ribbon-item" id="ribbonFire">🔥 Fire</div>
+    <div class="ribbon-item" id="ribbonMusic">🎵 Music</div>
+    <div class="ribbon-item" id="ribbonLifts">🛗 Lifts</div>
+    <div class="ribbon-item" id="ribbonAccess">🚪 Access</div>
+    <div class="ribbon-item ribbon-ok" id="ribbonOnline">🟢 Online</div>
+  </div>
+
   <div class="layout">
     <div class="sidebar">
       <div class="nav active" onclick="showPage('dashboard', this)">Dashboard</div>
@@ -289,6 +377,7 @@ input, select { padding:11px; border:1px solid #c8ccd2; border-radius:3px; min-w
     </div>
 
     <div class="main">
+      <div id="bigAlarmBanner" class="big-alarm-banner"></div>
 
       <div id="page-dashboard" class="page">
         <h1 class="page-title">Dashboard</h1>
@@ -323,84 +412,84 @@ input, select { padding:11px; border:1px solid #c8ccd2; border-radius:3px; min-w
         </div>
       </div>
 
-     <div id="page-fire" class="page hidden">
-  <h1 class="page-title">Fire Alarm Monitoring</h1>
+      <div id="page-fire" class="page hidden">
+        <h1 class="page-title">Fire Alarm Monitoring</h1>
 
-  <div class="card">
-    <h2>Lumina Fire System</h2>
-    <p>Status: <span id="firePageStatus"></span></p>
-    <p>Live Monitor: <span id="fireLiveStatus">---</span></p>
-    <p>Controls Locked: <span id="firePageLocked"></span></p>
-    <p class="small">Live zones and devices are sent from the Lumina panel in Roblox.</p>
-  </div>
+        <div class="card">
+          <h2>Lumina Fire System</h2>
+          <p>Status: <span id="firePageStatus"></span></p>
+          <p>Live Monitor: <span id="fireLiveStatus">---</span></p>
+          <p>Controls Locked: <span id="firePageLocked"></span></p>
+          <p class="small">Live zones and devices are sent from the Lumina panel in Roblox.</p>
+        </div>
 
-  <div class="grid">
-    <div class="status-card ok">
-      <div class="status-title">Total Devices</div>
-      <div class="status-value" id="fireDeviceCount">0</div>
-    </div>
+        <div class="grid">
+          <div class="status-card ok">
+            <div class="status-title">Total Devices</div>
+            <div class="status-value" id="fireDeviceCount">0</div>
+          </div>
 
-    <div class="status-card ok">
-      <div class="status-title">Zones</div>
-      <div class="status-value" id="fireZoneCount">0</div>
-    </div>
+          <div class="status-card ok">
+            <div class="status-title">Zones</div>
+            <div class="status-value" id="fireZoneCount">0</div>
+          </div>
 
-    <div class="status-card alarm">
-      <div class="status-title">Alarms</div>
-      <div class="status-value" id="fireAlarmCount">0</div>
-    </div>
+          <div class="status-card alarm">
+            <div class="status-title">Alarms</div>
+            <div class="status-value" id="fireAlarmCount">0</div>
+          </div>
 
-    <div class="status-card warning">
-      <div class="status-title">Faults</div>
-      <div class="status-value" id="fireFaultCount">0</div>
-    </div>
-  </div>
+          <div class="status-card warning">
+            <div class="status-title">Faults</div>
+            <div class="status-value" id="fireFaultCount">0</div>
+          </div>
+        </div>
+                <div class="card">
+          <h2>Zones</h2>
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Zone</th>
+                <th>Status</th>
+                <th>Devices</th>
+                <th>Alarms</th>
+                <th>Faults</th>
+                <th>Isolated</th>
+              </tr>
+            </thead>
+            <tbody id="fireZonesTable">
+              <tr>
+                <td colspan="6">Waiting for live zone data...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
 
-  <div class="card">
-    <h2>Zones</h2>
-    <table class="table">
-      <thead>
-        <tr>
-          <th>Zone</th>
-          <th>Status</th>
-          <th>Devices</th>
-          <th>Alarms</th>
-          <th>Faults</th>
-          <th>Isolated</th>
-        </tr>
-      </thead>
-      <tbody id="fireZonesTable">
-        <tr>
-          <td colspan="6">Waiting for live zone data...</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
+        <div class="card">
+          <h2>Devices</h2>
+          <input id="fireDeviceSearch" placeholder="Search devices, zones, loops, locations..." oninput="loadState()">
 
-  <div class="card">
-    <h2>Devices</h2>
-    <input id="fireDeviceSearch" placeholder="Search devices, zones, loops, locations..." oninput="loadState()">
-
-    <table class="table">
-      <thead>
-        <tr>
-          <th>Loop</th>
-          <th>Zone</th>
-          <th>Device</th>
-          <th>Type</th>
-          <th>Status</th>
-          <th>Location</th>
-          <th>Serial</th>
-        </tr>
-      </thead>
-      <tbody id="fireDevicesTable">
-        <tr>
-          <td colspan="7">Waiting for live device data...</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-</div>
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Node</th>
+                <th>Loop</th>
+                <th>Zone</th>
+                <th>Device</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th>Location</th>
+                <th>Serial</th>
+              </tr>
+            </thead>
+            <tbody id="fireDevicesTable">
+              <tr>
+                <td colspan="8">Waiting for live device data...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
 
       <div id="page-music" class="page hidden">
         <h1 class="page-title">Music Control</h1>
@@ -426,43 +515,45 @@ input, select { padding:11px; border:1px solid #c8ccd2; border-radius:3px; min-w
         <div class="card">
           <h2>Lift System</h2>
           <p>Status: <span id="liftsPageStatus"></span></p>
+
           <table class="table">
-  <thead>
-    <tr>
-      <th>Lift</th>
-      <th>Group</th>
-      <th>Floor</th>
-      <th>Direction</th>
-      <th>Doors</th>
-      <th>Status</th>
-      <th>Fire Recall</th>
-      <th>Served Floors</th>
-    </tr>
-  </thead>
-  <tbody id="liftTable">
-    <tr>
-      <td colspan="8">Waiting for lift data...</td>
-    </tr>
-  </tbody>
-</table>
+            <thead>
+              <tr>
+                <th>Lift</th>
+                <th>Group</th>
+                <th>Floor</th>
+                <th>Direction</th>
+                <th>Doors</th>
+                <th>Status</th>
+                <th>Fire Recall</th>
+                <th>Served Floors</th>
+              </tr>
+            </thead>
+            <tbody id="liftTable">
+              <tr>
+                <td colspan="8">Waiting for lift data...</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
-<div id="page-access" class="page hidden">
-  <h1 class="page-title">Access Control</h1>
 
-  <div class="card">
-    <h2>Door System</h2>
-    <p>Status: <span id="accessPageStatus"></span></p>
+      <div id="page-access" class="page hidden">
+        <h1 class="page-title">Access Control</h1>
 
-    <button class="controlBtn" onclick="sendAccess('lock')">Lock All Doors</button>
-    <button class="controlBtn" onclick="sendAccess('unlock')">Unlock All Doors</button>
-    <button class="controlBtn" onclick="sendAccess('hold_open')">Hold Open</button>
-    <button class="controlBtn" onclick="sendAccess('release_hold')">Release Hold</button>
-    <button class="controlBtn" onclick="sendAccess('fire')">Fire Release</button>
-    <button class="controlBtn" onclick="sendAccess('reset')">Reset Releases</button>
-    <button class="controlBtn" onclick="sendAccess('open', 10)">Open 10 Seconds</button>
-  </div>
-</div>
+        <div class="card">
+          <h2>Door System</h2>
+          <p>Status: <span id="accessPageStatus"></span></p>
+
+          <button class="controlBtn" onclick="sendAccess('lock')">Lock All Doors</button>
+          <button class="controlBtn" onclick="sendAccess('unlock')">Unlock All Doors</button>
+          <button class="controlBtn" onclick="sendAccess('hold_open')">Hold Open</button>
+          <button class="controlBtn" onclick="sendAccess('release_hold')">Release Hold</button>
+          <button class="controlBtn" onclick="sendAccess('fire')">Fire Release</button>
+          <button class="controlBtn" onclick="sendAccess('reset')">Reset Releases</button>
+          <button class="controlBtn" onclick="sendAccess('open', 10)">Open 10 Seconds</button>
+        </div>
+      </div>
 
       <div id="page-events" class="page hidden">
         <h1 class="page-title">Event Log</h1>
@@ -546,7 +637,6 @@ async function logout() {
   currentUser = null;
   checkLogin();
 }
-
 async function loadState() {
   if (!currentUser) return;
 
@@ -566,122 +656,110 @@ async function loadState() {
   document.getElementById("locked").textContent = data.controlsLocked;
   document.getElementById("song").textContent = data.currentSongNumber || "None";
 
- const firePageStatus = document.getElementById("firePageStatus");
-const firePageLocked = document.getElementById("firePageLocked");
+  const firePageStatus = document.getElementById("firePageStatus");
+  const firePageLocked = document.getElementById("firePageLocked");
 
-if (firePageStatus) {
-  firePageStatus.innerHTML = data.fire === "alarm"
-    ? "<span class='badge badge-alarm'>ALARM</span>"
-    : "<span class='badge badge-ok'>NORMAL</span>";
-}
+  if (firePageStatus) {
+    firePageStatus.innerHTML = data.fire === "alarm"
+      ? "<span class='badge badge-alarm'>ALARM</span>"
+      : "<span class='badge badge-ok'>NORMAL</span>";
+  }
 
-if (firePageLocked) {
-  firePageLocked.textContent = data.controlsLocked;
-}
+  if (firePageLocked) {
+    firePageLocked.textContent = data.controlsLocked;
+  }
 
-  document.getElementById("firePageLocked").textContent = data.controlsLocked;
   const fireLiveStatus = document.getElementById("fireLiveStatus");
-const fireDeviceCount = document.getElementById("fireDeviceCount");
-const fireZoneCount = document.getElementById("fireZoneCount");
-const fireAlarmCount = document.getElementById("fireAlarmCount");
-const fireFaultCount = document.getElementById("fireFaultCount");
-const fireZonesTable = document.getElementById("fireZonesTable");
-const fireDevicesTable = document.getElementById("fireDevicesTable");
-const fireSearch = document.getElementById("fireDeviceSearch");
+  const fireDeviceCount = document.getElementById("fireDeviceCount");
+  const fireZoneCount = document.getElementById("fireZoneCount");
+  const fireAlarmCount = document.getElementById("fireAlarmCount");
+  const fireFaultCount = document.getElementById("fireFaultCount");
+  const fireZonesTable = document.getElementById("fireZonesTable");
+  const fireDevicesTable = document.getElementById("fireDevicesTable");
+  const fireSearch = document.getElementById("fireDeviceSearch");
 
-const fireZones = Array.isArray(data.fireZones) ? data.fireZones : [];
-const fireDevices = Array.isArray(data.fireDevices) ? data.fireDevices : [];
+  const fireZones = Array.isArray(data.fireZones) ? data.fireZones : [];
+  const fireDevices = Array.isArray(data.fireDevices) ? data.fireDevices : [];
 
-const alarmCount = fireDevices.filter(d => d.status === "alarm").length;
-const faultCount = fireDevices.filter(d => d.status === "fault").length;
+  const alarmCount = fireDevices.filter(d => d.status === "alarm").length;
+  const faultCount = fireDevices.filter(d => d.status === "fault").length;
 
-if (fireLiveStatus) fireLiveStatus.textContent = data.fireLive || "offline";
-if (fireDeviceCount) fireDeviceCount.textContent = fireDevices.length;
-if (fireZoneCount) fireZoneCount.textContent = fireZones.length;
-if (fireAlarmCount) fireAlarmCount.textContent = alarmCount;
-if (fireFaultCount) fireFaultCount.textContent = faultCount;
+  if (fireLiveStatus) fireLiveStatus.textContent = data.fireLive || "offline";
+  if (fireDeviceCount) fireDeviceCount.textContent = fireDevices.length;
+  if (fireZoneCount) fireZoneCount.textContent = fireZones.length;
+  if (fireAlarmCount) fireAlarmCount.textContent = alarmCount;
+  if (fireFaultCount) fireFaultCount.textContent = faultCount;
 
-if (fireZonesTable) {
-  if (fireZones.length > 0) {
-    fireZonesTable.innerHTML = fireZones.map(function(zone) {
-      const badge =
-        zone.status === "alarm" ? "badge badge-alarm" :
-        zone.status === "fault" ? "badge badge-warning" :
-        "badge badge-ok";
+  if (fireZonesTable) {
+    if (fireZones.length > 0) {
+      fireZonesTable.innerHTML = fireZones.map(function(zone) {
+        const badge =
+          zone.status === "alarm" ? "badge badge-alarm" :
+          zone.status === "fault" ? "badge badge-warning" :
+          zone.status === "isolated" ? "badge badge-warning" :
+          "badge badge-ok";
 
-      return "<tr>" +
-        "<td>Zone " + (zone.zone || "Unknown") + "</td>" +
-        "<td><span class='" + badge + "'>" + (zone.status || "normal") + "</span></td>" +
-        "<td>" + (zone.deviceCount || 0) + "</td>" +
-        "<td>" + (zone.alarmCount || 0) + "</td>" +
-        "<td>" + (zone.faultCount || 0) + "</td>" +
-        "<td>" + (zone.isolatedCount || 0) + "</td>" +
-      "</tr>";
-    }).join("");
-  } else {
-    fireZonesTable.innerHTML = "<tr><td colspan='6'>Waiting for live zone data...</td></tr>";
-  }
-}
-
-if (fireDevicesTable) {
-  let searchText = "";
-
-  if (fireSearch) {
-    searchText = fireSearch.value.toLowerCase();
+        return "<tr>" +
+          "<td>Zone " + (zone.zone || "Unknown") + "</td>" +
+          "<td><span class='" + badge + "'>" + (zone.status || "normal") + "</span></td>" +
+          "<td>" + (zone.deviceCount || 0) + "</td>" +
+          "<td>" + (zone.alarmCount || 0) + "</td>" +
+          "<td>" + (zone.faultCount || 0) + "</td>" +
+          "<td>" + (zone.isolatedCount || 0) + "</td>" +
+        "</tr>";
+      }).join("");
+    } else {
+      fireZonesTable.innerHTML = "<tr><td colspan='6'>Waiting for live zone data...</td></tr>";
+    }
   }
 
-  let filteredDevices = fireDevices;
+  if (fireDevicesTable) {
+    let searchText = "";
 
-  if (searchText) {
-    filteredDevices = fireDevices.filter(function(device) {
-      return JSON.stringify(device).toLowerCase().includes(searchText);
-    });
+    if (fireSearch) {
+      searchText = fireSearch.value.toLowerCase();
+    }
+
+    let filteredDevices = fireDevices;
+
+    if (searchText) {
+      filteredDevices = fireDevices.filter(function(device) {
+        return JSON.stringify(device).toLowerCase().includes(searchText);
+      });
+    }
+
+    if (filteredDevices.length > 0) {
+      fireDevicesTable.innerHTML = filteredDevices.map(function(device) {
+        const badge =
+          device.status === "alarm" ? "badge badge-alarm" :
+          device.status === "fault" ? "badge badge-warning" :
+          device.status === "isolated" ? "badge badge-warning" :
+          "badge badge-ok";
+
+        return "<tr class='" + (device.status === "alarm" ? "alarm-row" : "") + "'>" +
+          "<td>" + (device.node || "Unknown") + "</td>" +
+          "<td>" + (device.loop || "Unknown") + "</td>" +
+          "<td>" + (device.zone || "Unknown") + "</td>" +
+          "<td>" + (device.name || "Unknown") + "</td>" +
+          "<td>" + (device.type || "Unknown") + "</td>" +
+          "<td><span class='" + badge + "'>" + (device.status || "normal") + "</span></td>" +
+          "<td>" + (device.location || "Unknown") + "</td>" +
+          "<td>" + (device.serialNumber || "Unknown") + "</td>" +
+        "</tr>";
+      }).join("");
+    } else {
+      fireDevicesTable.innerHTML = "<tr><td colspan='8'>No matching fire devices.</td></tr>";
+    }
   }
 
-  if (filteredDevices.length > 0) {
-    fireDevicesTable.innerHTML = filteredDevices.map(function(device) {
-      const badge =
-        device.status === "alarm" ? "badge badge-alarm" :
-        device.status === "fault" ? "badge badge-warning" :
-        device.status === "isolated" ? "badge badge-warning" :
-        "badge badge-ok";
+  const musicPageStatus = document.getElementById("musicPageStatus");
+  if (musicPageStatus) musicPageStatus.textContent = data.music;
 
-      return "<tr>" +
-        "<td>" + (device.loop || "Unknown") + "</td>" +
-        "<td>" + (device.zone || "Unknown") + "</td>" +
-        "<td>" + (device.name || "Unknown") + "</td>" +
-        "<td>" + (device.type || "Unknown") + "</td>" +
-        "<td><span class='" + badge + "'>" + (device.status || "normal") + "</span></td>" +
-        "<td>" + (device.location || "Unknown") + "</td>" +
-        "<td>" + (device.serialNumber || "Unknown") + "</td>" +
-      "</tr>";
-    }).join("");
-  } else {
-    fireDevicesTable.innerHTML = "<tr><td colspan='7'>No matching fire devices.</td></tr>";
-  }
-}
+  const musicPageSong = document.getElementById("musicPageSong");
+  if (musicPageSong) musicPageSong.textContent = data.currentSongNumber || "None";
 
-const zoneTable = document.getElementById("zoneTable");
-
-if (zoneTable) {
-  if (data.activeFire) {
-    zoneTable.innerHTML =
-      "<tr><td>Zone " + data.activeFire.zone + "</td><td><span class='badge badge-alarm'>ALARM</span></td><td>" +
-      data.activeFire.deviceName + " | " +
-      data.activeFire.location + " | " +
-      data.activeFire.loop + " | " +
-      data.activeFire.node + " | Serial " +
-      data.activeFire.serialNumber +
-      "</td></tr>";
-  } else {
-    zoneTable.innerHTML =
-      "<tr><td>Zone 1</td><td><span class='badge badge-ok'>Normal</span></td><td>No active fire alarm</td></tr>";
-  }
-}
-
-  document.getElementById("musicPageStatus").textContent = data.music;
-  document.getElementById("musicPageSong").textContent = data.currentSongNumber || "None";
-  document.getElementById("liftsPageStatus").textContent = data.lifts;
+  const liftsPageStatus = document.getElementById("liftsPageStatus");
+  if (liftsPageStatus) liftsPageStatus.textContent = data.lifts;
 
   const liftTable = document.getElementById("liftTable");
 
@@ -704,16 +782,64 @@ if (zoneTable) {
     }
   }
 
-  document.getElementById("accessPageStatus").textContent = data.access;
+  const accessPageStatus = document.getElementById("accessPageStatus");
+  if (accessPageStatus) accessPageStatus.textContent = data.access;
 
   const fireCard = document.getElementById("fireCard");
   fireCard.className = data.fire === "alarm" ? "status-card alarm" : "status-card ok";
+
+  const ribbonFire = document.getElementById("ribbonFire");
+  const ribbonMusic = document.getElementById("ribbonMusic");
+  const ribbonLifts = document.getElementById("ribbonLifts");
+  const ribbonAccess = document.getElementById("ribbonAccess");
+  const bigAlarmBanner = document.getElementById("bigAlarmBanner");
+
+  if (ribbonFire) {
+    ribbonFire.className = data.fire === "alarm"
+      ? "ribbon-item ribbon-alarm"
+      : "ribbon-item ribbon-ok";
+    ribbonFire.textContent = data.fire === "alarm" ? "🔥 Fire Alarm" : "🔥 Fire Normal";
+  }
+
+  if (ribbonMusic) {
+    ribbonMusic.className = data.music === "fire_locked"
+      ? "ribbon-item ribbon-warning"
+      : "ribbon-item ribbon-ok";
+    ribbonMusic.textContent = "🎵 " + data.music;
+  }
+
+  if (ribbonLifts) {
+    ribbonLifts.className = data.lifts === "online"
+      ? "ribbon-item ribbon-ok"
+      : "ribbon-item ribbon-warning";
+    ribbonLifts.textContent = "🛗 " + data.lifts;
+  }
+
+  if (ribbonAccess) {
+    ribbonAccess.className = data.access === "normal"
+      ? "ribbon-item ribbon-ok"
+      : "ribbon-item ribbon-warning";
+    ribbonAccess.textContent = "🚪 " + data.access;
+  }
+
+  if (bigAlarmBanner) {
+    bigAlarmBanner.style.display = data.fire === "alarm" ? "block" : "none";
+
+    if (data.activeFire) {
+      bigAlarmBanner.textContent =
+        "🔥 FIRE ALARM ACTIVE — Zone " +
+        (data.activeFire.zone || "Unknown") +
+        " — " +
+        (data.activeFire.deviceName || data.activeFire.device || "Unknown Device");
+    } else {
+      bigAlarmBanner.textContent = "🔥 FIRE ALARM ACTIVE";
+    }
+  }
 
   document.querySelectorAll(".controlBtn").forEach(function(btn) {
     btn.disabled = data.controlsLocked || !currentUser || currentUser.role === "operator";
   });
 }
-
 async function loadSongs() {
   if (!currentUser) return;
 
@@ -758,6 +884,7 @@ async function loadEvents() {
     eventsDashBox.innerHTML = html;
   }
 }
+
 async function sendCommand(command, songNumber) {
   const res = await fetch("/api/music/command", {
     method: "POST",
@@ -797,7 +924,6 @@ async function sendAccess(command, value) {
   loadEvents();
 }
 
-
 function playSelected() {
   const num = document.getElementById("songList").value;
   sendCommand("play_song", Number(num));
@@ -813,157 +939,153 @@ setInterval(loadEvents, 5000);
 </html>
   `);
 });
-
 app.post("/api/setup/create-admin", async (req, res) => {
-    const count = await pool.query("SELECT COUNT(*) FROM users");
+  const count = await pool.query("SELECT COUNT(*) FROM users");
 
-    if (Number(count.rows[0].count) > 0) {
-        return res.status(403).json({ error: "Setup already completed" });
-    }
+  if (Number(count.rows[0].count) > 0) {
+    return res.status(403).json({ error: "Setup already completed" });
+  }
 
-    const passwordHash = await bcrypt.hash(req.body.password, 12);
+  const passwordHash = await bcrypt.hash(req.body.password, 12);
 
-    await pool.query(
-        "INSERT INTO users (username, password_hash, role) VALUES ($1, $2, $3)",
-        [req.body.username, passwordHash, "administrator"]
-    );
+  await pool.query(
+    "INSERT INTO users (username, password_hash, role) VALUES ($1, $2, $3)",
+    [req.body.username, passwordHash, "administrator"]
+  );
 
-    res.json({ ok: true });
+  res.json({ ok: true });
 });
 
 app.post("/api/auth/login", async (req, res) => {
-    const { username, password } = req.body;
+  const { username, password } = req.body;
 
-    const result = await pool.query("SELECT * FROM users WHERE username = $1", [username]);
-    const user = result.rows[0];
+  const result = await pool.query("SELECT * FROM users WHERE username = $1", [username]);
+  const user = result.rows[0];
 
-    if (!user) return res.status(401).json({ error: "Invalid username or password" });
+  if (!user) return res.status(401).json({ error: "Invalid username or password" });
 
-    const ok = await bcrypt.compare(password, user.password_hash);
-    if (!ok) return res.status(401).json({ error: "Invalid username or password" });
+  const ok = await bcrypt.compare(password, user.password_hash);
+  if (!ok) return res.status(401).json({ error: "Invalid username or password" });
 
-    req.session.user = {
-        id: user.id,
-        username: user.username,
-        role: user.role
-    };
+  req.session.user = {
+    id: user.id,
+    username: user.username,
+    role: user.role
+  };
 
-    res.json({ ok: true, user: req.session.user });
+  res.json({ ok: true, user: req.session.user });
 });
 
 app.post("/api/auth/logout", (req, res) => {
-    req.session.destroy(() => {
-        res.json({ ok: true });
-    });
+  req.session.destroy(() => {
+    res.json({ ok: true });
+  });
 });
 
 app.get("/api/auth/me", (req, res) => {
-    res.json({ user: req.session.user || null });
+  res.json({ user: req.session.user || null });
 });
 
 app.get("/api/state", requireLogin, (req, res) => {
-    res.json(bmsState);
+  res.json(bmsState);
 });
 
 app.get("/api/music/songs", requireLogin, (req, res) => {
-    res.json({ songs });
+  res.json({ songs });
 });
 
 app.get("/api/events", requireLogin, async (req, res) => {
-    const result = await pool.query("SELECT * FROM event_log ORDER BY id DESC LIMIT 50");
-    res.json({ events: result.rows });
+  const result = await pool.query("SELECT * FROM event_log ORDER BY id DESC LIMIT 50");
+  res.json({ events: result.rows });
 });
 
 app.post("/api/music/command", requireRole("supervisor", "administrator"), async (req, res) => {
-    if (bmsState.controlsLocked) {
-        return res.status(423).json({ error: "Controls locked by fire alarm" });
-    }
+  if (bmsState.controlsLocked) {
+    return res.status(423).json({ error: "Controls locked by fire alarm" });
+  }
 
-    latestCommand = {
-        id: Date.now(),
-        command: req.body.command,
-        songNumber: req.body.songNumber || null,
-        controlsLocked: bmsState.controlsLocked
-    };
+  latestCommand = {
+    id: Date.now(),
+    command: req.body.command,
+    songNumber: req.body.songNumber || null,
+    controlsLocked: bmsState.controlsLocked
+  };
 
-    await logEvent("music_command", {
-        user: req.session.user.username,
-        role: req.session.user.role,
-        command: latestCommand
-    });
+  await logEvent("music_command", {
+    user: req.session.user.username,
+    role: req.session.user.role,
+    command: latestCommand
+  });
 
-    res.json({ ok: true, command: latestCommand });
+  res.json({ ok: true, command: latestCommand });
 });
 
 app.get("/api/roblox/music/command", (req, res) => {
-    if (!checkSecret(req, res)) return;
-    res.json(latestCommand);
+  if (!checkSecret(req, res)) return;
+  res.json(latestCommand);
 });
 
 app.post("/api/roblox/music/songs", async (req, res) => {
-    if (!checkSecret(req, res)) return;
+  if (!checkSecret(req, res)) return;
 
-    songs = req.body.songs || [];
+  songs = req.body.songs || [];
 
-    await logEvent("song_list_update", { count: songs.length });
-    res.json({ ok: true, count: songs.length });
+  await logEvent("song_list_update", { count: songs.length });
+  res.json({ ok: true, count: songs.length });
 });
 
 app.post("/api/roblox/music/state", async (req, res) => {
-    if (!checkSecret(req, res)) return;
+  if (!checkSecret(req, res)) return;
 
-    bmsState.music = req.body.state || bmsState.music;
-    bmsState.currentSongNumber = req.body.currentSongNumber || null;
-    bmsState.currentSongId = req.body.currentSongId || null;
+  bmsState.music = req.body.state || bmsState.music;
+  bmsState.currentSongNumber = req.body.currentSongNumber || null;
+  bmsState.currentSongId = req.body.currentSongId || null;
 
-    await logEvent("music_state", req.body);
-    res.json({ ok: true, state: bmsState });
+  await logEvent("music_state", req.body);
+  res.json({ ok: true, state: bmsState });
 });
 app.post("/api/access/command", requireRole("supervisor", "administrator"), async (req, res) => {
-    if (bmsState.controlsLocked) {
-        return res.status(423).json({ error: "Controls locked by fire alarm" });
-    }
+  if (bmsState.controlsLocked) {
+    return res.status(423).json({ error: "Controls locked by fire alarm" });
+  }
 
-    latestAccessCommand = {
-        id: Date.now(),
-        command: req.body.command,
-        value: req.body.value || null
-    };
+  latestAccessCommand = {
+    id: Date.now(),
+    command: req.body.command,
+    value: req.body.value || null
+  };
 
-    await logEvent("access_command", {
-        user: req.session.user.username,
-        role: req.session.user.role,
-        command: latestAccessCommand
-    });
+  await logEvent("access_command", {
+    user: req.session.user.username,
+    role: req.session.user.role,
+    command: latestAccessCommand
+  });
 
-    res.json({ ok: true, command: latestAccessCommand });
+  res.json({ ok: true, command: latestAccessCommand });
 });
 
 app.get("/api/roblox/access/command", (req, res) => {
-    if (!checkSecret(req, res)) return;
-
-    res.json(latestAccessCommand);
+  if (!checkSecret(req, res)) return;
+  res.json(latestAccessCommand);
 });
+
 app.get("/api/debug/reset-fire", async (req, res) => {
+  bmsState.fire = "normal";
+  bmsState.fireLive = "offline";
+  bmsState.controlsLocked = false;
+  bmsState.activeFire = null;
+  bmsState.fireDevices = [];
+  bmsState.fireZones = [];
+  bmsState.access = "online";
+  bmsState.music = "online";
+  bmsState.lifts = "online";
 
-    bmsState.fire = "normal";
-    bmsState.fireLive = "offline";
-    bmsState.controlsLocked = false;
-
-    bmsState.activeFire = null;
-
-    bmsState.fireDevices = [];
-    bmsState.fireZones = [];
-
-    bmsState.access = "online";
-    bmsState.music = "online";
-    bmsState.lifts = "online";
-
-    res.json({
-        ok: true,
-        message: "BMS reset complete."
-    });
+  res.json({
+    ok: true,
+    message: "BMS reset complete."
+  });
 });
+
 app.post("/api/roblox/fire/live", async (req, res) => {
   if (!checkSecret(req, res)) return;
 
@@ -980,57 +1102,57 @@ app.post("/api/roblox/fire/live", async (req, res) => {
 });
 
 app.post("/api/roblox/fire/active", async (req, res) => {
-    if (!checkSecret(req, res)) return;
+  if (!checkSecret(req, res)) return;
 
-    const fireEvent = {
-        eventType: req.body.eventType || "Unknown",
-        deviceName: req.body.deviceName || "Unknown Device",
-        device: req.body.device || "Unknown",
-        location: req.body.location || "Unknown",
-        zone: req.body.zone || "Unknown",
-        node: req.body.node || "Unknown",
-        loop: req.body.loop || "Unknown",
-        serialNumber: req.body.serialNumber || "Unknown",
-        origin: req.body.origin || "Unknown",
-        time: req.body.time || new Date().toLocaleTimeString()
-    };
+  const fireEvent = {
+    eventType: req.body.eventType || "Unknown",
+    deviceName: req.body.deviceName || "Unknown Device",
+    device: req.body.device || "Unknown",
+    location: req.body.location || "Unknown",
+    zone: req.body.zone || "Unknown",
+    node: req.body.node || "Unknown",
+    loop: req.body.loop || "Unknown",
+    serialNumber: req.body.serialNumber || "Unknown",
+    origin: req.body.origin || "Unknown",
+    time: req.body.time || new Date().toLocaleTimeString()
+  };
 
-    bmsState.fire = "alarm";
-    bmsState.controlsLocked = true;
-    bmsState.music = "fire_locked";
-    bmsState.activeFire = fireEvent;
+  bmsState.fire = "alarm";
+  bmsState.controlsLocked = true;
+  bmsState.music = "fire_locked";
+  bmsState.activeFire = fireEvent;
 
-    bmsState.fireEvents.unshift(fireEvent);
-    bmsState.fireEvents = bmsState.fireEvents.slice(0, 50);
+  bmsState.fireEvents.unshift(fireEvent);
+  bmsState.fireEvents = bmsState.fireEvents.slice(0, 50);
 
-    latestCommand = {
-        id: Date.now(),
-        command: "none",
-        songNumber: null,
-        controlsLocked: true
-    };
+  latestCommand = {
+    id: Date.now(),
+    command: "none",
+    songNumber: null,
+    controlsLocked: true
+  };
 
-    await logEvent("fire_active", fireEvent);
-    res.json({ ok: true, state: bmsState });
+  await logEvent("fire_active", fireEvent);
+  res.json({ ok: true, state: bmsState });
 });
 
 app.post("/api/roblox/fire/reset", async (req, res) => {
-    if (!checkSecret(req, res)) return;
+  if (!checkSecret(req, res)) return;
 
-    bmsState.fire = "normal";
-    bmsState.controlsLocked = false;
-    bmsState.activeFire = null;
-    bmsState.fireEvents = [];
+  bmsState.fire = "normal";
+  bmsState.controlsLocked = false;
+  bmsState.activeFire = null;
+  bmsState.fireEvents = [];
 
-    latestCommand = {
-        id: Date.now(),
-        command: "none",
-        songNumber: null,
-        controlsLocked: false
-    };
+  latestCommand = {
+    id: Date.now(),
+    command: "none",
+    songNumber: null,
+    controlsLocked: false
+  };
 
-    await logEvent("fire_reset", req.body);
-    res.json({ ok: true, state: bmsState });
+  await logEvent("fire_reset", req.body);
+  res.json({ ok: true, state: bmsState });
 });
 
 app.post("/api/roblox/lifts/state", async (req, res) => {
@@ -1047,13 +1169,14 @@ app.post("/api/roblox/lifts/state", async (req, res) => {
 
   res.json({ ok: true, state: bmsState });
 });
+
 initDb()
-    .then(() => {
-        app.listen(PORT, () => {
-            console.log("Whitford BMS running on port", PORT);
-        });
-    })
-    .catch((err) => {
-        console.error("Failed to start BMS:", err);
-        process.exit(1);
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log("Whitford BMS running on port", PORT);
     });
+  })
+  .catch((err) => {
+    console.error("Failed to start BMS:", err);
+    process.exit(1);
+  });
