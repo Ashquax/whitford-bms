@@ -17,70 +17,72 @@ const SECRET = process.env.BMS_SECRET || "CHANGE_THIS_SECRET";
 const SESSION_SECRET = process.env.SESSION_SECRET || "CHANGE_THIS_SESSION_SECRET";
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
+    connectionString: process.env.DATABASE_URL,
+    ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
 });
 
 app.use(session({
-  store: new PgSession({
-    pool,
-    tableName: "user_sessions",
-    createTableIfMissing: true
-  }),
-  secret: SESSION_SECRET,
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    maxAge: 1000 * 60 * 60 * 8,
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax"
-  }
+    store: new PgSession({
+        pool,
+        tableName: "user_sessions",
+        createTableIfMissing: true
+    }),
+    secret: SESSION_SECRET,
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+        maxAge: 1000 * 60 * 60 * 8,
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax"
+    }
 }));
 
 let bmsState = {
-  fire: "normal",
-  controlsLocked: false,
-  music: "stopped",
-  currentSongNumber: null,
-  currentSongId: null,
-  lifts: "normal",
-  access: "normal"
+    fire: "normal",
+    controlsLocked: false,
+    music: "stopped",
+    currentSongNumber: null,
+    currentSongId: null,
+    lifts: "normal",
+    access: "normal",
+  activeFire: null,
+    fireEvents: [],
 };
 
 let songs = [];
 
 let latestCommand = {
-  id: 0,
-  command: "none",
-  songNumber: null,
-  controlsLocked: false
+    id: 0,
+    command: "none",
+    songNumber: null,
+    controlsLocked: false
 };
 
 function checkSecret(req, res) {
-  const secret = req.body.secret || req.query.secret;
-  if (secret !== SECRET) {
-    res.status(403).json({ error: "Bad secret" });
-    return false;
-  }
-  return true;
+    const secret = req.body.secret || req.query.secret;
+    if (secret !== SECRET) {
+        res.status(403).json({ error: "Bad secret" });
+        return false;
+    }
+    return true;
 }
 
 function requireLogin(req, res, next) {
-  if (!req.session.user) return res.status(401).json({ error: "Not logged in" });
-  next();
+    if (!req.session.user) return res.status(401).json({ error: "Not logged in" });
+    next();
 }
 
 function requireRole(...roles) {
-  return (req, res, next) => {
-    if (!req.session.user) return res.status(401).json({ error: "Not logged in" });
-    if (!roles.includes(req.session.user.role)) return res.status(403).json({ error: "No permission" });
-    next();
-  };
+    return (req, res, next) => {
+        if (!req.session.user) return res.status(401).json({ error: "Not logged in" });
+        if (!roles.includes(req.session.user.role)) return res.status(403).json({ error: "No permission" });
+        next();
+    };
 }
 
 async function initDb() {
-  await pool.query(`
+    await pool.query(`
     CREATE TABLE IF NOT EXISTS event_log (
       id SERIAL PRIMARY KEY,
       type TEXT NOT NULL,
@@ -89,7 +91,7 @@ async function initDb() {
     )
   `);
 
-  await pool.query(`
+    await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
       username TEXT UNIQUE NOT NULL,
@@ -101,21 +103,21 @@ async function initDb() {
 }
 
 async function logEvent(type, data) {
-  try {
-    await pool.query(
-      "INSERT INTO event_log (type, data) VALUES ($1, $2)",
-      [type, data]
-    );
-  } catch (err) {
-    console.error("Log error:", err);
-  }
+    try {
+        await pool.query(
+            "INSERT INTO event_log (type, data) VALUES ($1, $2)",
+            [type, data]
+        );
+    } catch (err) {
+        console.error("Log error:", err);
+    }
 }
 
 app.get("/setup", async (req, res) => {
-  const count = await pool.query("SELECT COUNT(*) FROM users");
+    const count = await pool.query("SELECT COUNT(*) FROM users");
 
-  if (Number(count.rows[0].count) > 0) {
-    return res.send(`
+    if (Number(count.rows[0].count) > 0) {
+        return res.send(`
 <!DOCTYPE html>
 <html>
 <head>
@@ -132,9 +134,9 @@ a { color:#e20015; }
 </body>
 </html>
     `);
-  }
+    }
 
-  res.send(`
+    res.send(`
 <!DOCTYPE html>
 <html>
 <head>
@@ -200,7 +202,7 @@ async function createAdmin() {
 });
 
 app.get("/", (req, res) => {
-  res.send(`
+    res.send(`
 <!DOCTYPE html>
 <html>
 <head>
@@ -457,6 +459,16 @@ async function loadState() {
     : "<span class='badge badge-ok'>NORMAL</span>";
 
   document.getElementById("firePageLocked").textContent = data.controlsLocked;
+  if (data.activeFire) {
+  document.getElementById("zoneTable").innerHTML =
+    "<tr><td>Zone " + data.activeFire.zone + "</td><td><span class='badge badge-alarm'>ALARM</span></td><td>" +
+    data.activeFire.deviceName + " | " +
+    data.activeFire.location + " | " +
+    data.activeFire.loop + " | " +
+    data.activeFire.node + " | Serial " +
+    data.activeFire.serialNumber +
+    "</td></tr>";
+}
   document.getElementById("musicPageStatus").textContent = data.music;
   document.getElementById("musicPageSong").textContent = data.currentSongNumber || "None";
   document.getElementById("liftsPageStatus").textContent = data.lifts;
@@ -542,162 +554,181 @@ setInterval(loadEvents, 5000);
 });
 
 app.post("/api/setup/create-admin", async (req, res) => {
-  const count = await pool.query("SELECT COUNT(*) FROM users");
+    const count = await pool.query("SELECT COUNT(*) FROM users");
 
-  if (Number(count.rows[0].count) > 0) {
-    return res.status(403).json({ error: "Setup already completed" });
-  }
+    if (Number(count.rows[0].count) > 0) {
+        return res.status(403).json({ error: "Setup already completed" });
+    }
 
-  const passwordHash = await bcrypt.hash(req.body.password, 12);
+    const passwordHash = await bcrypt.hash(req.body.password, 12);
 
-  await pool.query(
-    "INSERT INTO users (username, password_hash, role) VALUES ($1, $2, $3)",
-    [req.body.username, passwordHash, "administrator"]
-  );
+    await pool.query(
+        "INSERT INTO users (username, password_hash, role) VALUES ($1, $2, $3)",
+        [req.body.username, passwordHash, "administrator"]
+    );
 
-  res.json({ ok: true });
+    res.json({ ok: true });
 });
 
 app.post("/api/auth/login", async (req, res) => {
-  const { username, password } = req.body;
+    const { username, password } = req.body;
 
-  const result = await pool.query("SELECT * FROM users WHERE username = $1", [username]);
-  const user = result.rows[0];
+    const result = await pool.query("SELECT * FROM users WHERE username = $1", [username]);
+    const user = result.rows[0];
 
-  if (!user) return res.status(401).json({ error: "Invalid username or password" });
+    if (!user) return res.status(401).json({ error: "Invalid username or password" });
 
-  const ok = await bcrypt.compare(password, user.password_hash);
-  if (!ok) return res.status(401).json({ error: "Invalid username or password" });
+    const ok = await bcrypt.compare(password, user.password_hash);
+    if (!ok) return res.status(401).json({ error: "Invalid username or password" });
 
-  req.session.user = {
-    id: user.id,
-    username: user.username,
-    role: user.role
-  };
+    req.session.user = {
+        id: user.id,
+        username: user.username,
+        role: user.role
+    };
 
-  res.json({ ok: true, user: req.session.user });
+    res.json({ ok: true, user: req.session.user });
 });
 
 app.post("/api/auth/logout", (req, res) => {
-  req.session.destroy(() => {
-    res.json({ ok: true });
-  });
+    req.session.destroy(() => {
+        res.json({ ok: true });
+    });
 });
 
 app.get("/api/auth/me", (req, res) => {
-  res.json({ user: req.session.user || null });
+    res.json({ user: req.session.user || null });
 });
 
 app.get("/api/state", requireLogin, (req, res) => {
-  res.json(bmsState);
+    res.json(bmsState);
 });
 
 app.get("/api/music/songs", requireLogin, (req, res) => {
-  res.json({ songs });
+    res.json({ songs });
 });
 
 app.get("/api/events", requireLogin, async (req, res) => {
-  const result = await pool.query("SELECT * FROM event_log ORDER BY id DESC LIMIT 50");
-  res.json({ events: result.rows });
+    const result = await pool.query("SELECT * FROM event_log ORDER BY id DESC LIMIT 50");
+    res.json({ events: result.rows });
 });
 
 app.post("/api/music/command", requireRole("supervisor", "administrator"), async (req, res) => {
-  if (bmsState.controlsLocked) {
-    return res.status(423).json({ error: "Controls locked by fire alarm" });
-  }
+    if (bmsState.controlsLocked) {
+        return res.status(423).json({ error: "Controls locked by fire alarm" });
+    }
 
-  latestCommand = {
-    id: Date.now(),
-    command: req.body.command,
-    songNumber: req.body.songNumber || null,
-    controlsLocked: bmsState.controlsLocked
-  };
+    latestCommand = {
+        id: Date.now(),
+        command: req.body.command,
+        songNumber: req.body.songNumber || null,
+        controlsLocked: bmsState.controlsLocked
+    };
 
-  await logEvent("music_command", {
-    user: req.session.user.username,
-    role: req.session.user.role,
-    command: latestCommand
-  });
+    await logEvent("music_command", {
+        user: req.session.user.username,
+        role: req.session.user.role,
+        command: latestCommand
+    });
 
-  res.json({ ok: true, command: latestCommand });
+    res.json({ ok: true, command: latestCommand });
 });
 
 app.get("/api/roblox/music/command", (req, res) => {
-  if (!checkSecret(req, res)) return;
-  res.json(latestCommand);
+    if (!checkSecret(req, res)) return;
+    res.json(latestCommand);
 });
 
 app.post("/api/roblox/music/songs", async (req, res) => {
-  if (!checkSecret(req, res)) return;
+    if (!checkSecret(req, res)) return;
 
-  songs = req.body.songs || [];
+    songs = req.body.songs || [];
 
-  await logEvent("song_list_update", { count: songs.length });
-  res.json({ ok: true, count: songs.length });
+    await logEvent("song_list_update", { count: songs.length });
+    res.json({ ok: true, count: songs.length });
 });
 
 app.post("/api/roblox/music/state", async (req, res) => {
-  if (!checkSecret(req, res)) return;
+    if (!checkSecret(req, res)) return;
 
-  bmsState.music = req.body.state || bmsState.music;
-  bmsState.currentSongNumber = req.body.currentSongNumber || null;
-  bmsState.currentSongId = req.body.currentSongId || null;
+    bmsState.music = req.body.state || bmsState.music;
+    bmsState.currentSongNumber = req.body.currentSongNumber || null;
+    bmsState.currentSongId = req.body.currentSongId || null;
 
-  await logEvent("music_state", req.body);
-  res.json({ ok: true, state: bmsState });
+    await logEvent("music_state", req.body);
+    res.json({ ok: true, state: bmsState });
 });
 
 app.post("/api/roblox/fire/active", async (req, res) => {
-  if (!checkSecret(req, res)) return;
+    if (!checkSecret(req, res)) return;
 
-  bmsState.fire = "alarm";
-  bmsState.controlsLocked = true;
-  bmsState.music = "fire_locked";
+    const fireEvent = {
+        eventType: req.body.eventType || "Unknown",
+        deviceName: req.body.deviceName || "Unknown Device",
+        device: req.body.device || "Unknown",
+        location: req.body.location || "Unknown",
+        zone: req.body.zone || "Unknown",
+        node: req.body.node || "Unknown",
+        loop: req.body.loop || "Unknown",
+        serialNumber: req.body.serialNumber || "Unknown",
+        origin: req.body.origin || "Unknown",
+        time: req.body.time || new Date().toLocaleTimeString()
+    };
 
-  latestCommand = {
-    id: Date.now(),
-    command: "none",
-    songNumber: null,
-    controlsLocked: true
-  };
+    bmsState.fire = "alarm";
+    bmsState.controlsLocked = true;
+    bmsState.music = "fire_locked";
+    bmsState.activeFire = fireEvent;
 
-  await logEvent("fire_active", req.body);
-  res.json({ ok: true, state: bmsState });
+    bmsState.fireEvents.unshift(fireEvent);
+    bmsState.fireEvents = bmsState.fireEvents.slice(0, 50);
+
+    latestCommand = {
+        id: Date.now(),
+        command: "none",
+        songNumber: null,
+        controlsLocked: true
+    };
+
+    await logEvent("fire_active", fireEvent);
+    res.json({ ok: true, state: bmsState });
 });
 
 app.post("/api/roblox/fire/reset", async (req, res) => {
-  if (!checkSecret(req, res)) return;
+    if (!checkSecret(req, res)) return;
 
-  bmsState.fire = "normal";
-  bmsState.controlsLocked = false;
+    bmsState.fire = "normal";
+    bmsState.controlsLocked = false;
+    bmsState.activeFire = null;
+    bmsState.fireEvents = [];
 
-  latestCommand = {
-    id: Date.now(),
-    command: "none",
-    songNumber: null,
-    controlsLocked: false
-  };
+    latestCommand = {
+        id: Date.now(),
+        command: "none",
+        songNumber: null,
+        controlsLocked: false
+    };
 
-  await logEvent("fire_reset", req.body);
-  res.json({ ok: true, state: bmsState });
+    await logEvent("fire_reset", req.body);
+    res.json({ ok: true, state: bmsState });
 });
 
 app.post("/api/roblox/lifts/state", async (req, res) => {
-  if (!checkSecret(req, res)) return;
+    if (!checkSecret(req, res)) return;
 
-  bmsState.lifts = req.body.lifts || "normal";
+    bmsState.lifts = req.body.lifts || "normal";
 
-  await logEvent("lifts_state", req.body);
-  res.json({ ok: true, state: bmsState });
+    await logEvent("lifts_state", req.body);
+    res.json({ ok: true, state: bmsState });
 });
 
 initDb()
-  .then(() => {
-    app.listen(PORT, () => {
-      console.log("Whitford BMS running on port", PORT);
+    .then(() => {
+        app.listen(PORT, () => {
+            console.log("Whitford BMS running on port", PORT);
+        });
+    })
+    .catch((err) => {
+        console.error("Failed to start BMS:", err);
+        process.exit(1);
     });
-  })
-  .catch((err) => {
-    console.error("Failed to start BMS:", err);
-    process.exit(1);
-  });
