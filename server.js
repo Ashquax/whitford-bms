@@ -944,7 +944,7 @@ app.get("/api/roblox/access/command", (req, res) => {
 
     res.json(latestAccessCommand);
 });
-app.post("/api/debug/reset-all", async (req, res) => {
+app.get("/api/debug/reset-fire", async (req, res) => {
 
     bmsState.fire = "normal";
     bmsState.fireLive = "offline";
