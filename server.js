@@ -326,6 +326,25 @@ input, select { padding:11px; border:1px solid #c8ccd2; border-radius:3px; min-w
           <p>Controls Locked: <span id="firePageLocked"></span></p>
           <p class="small">Fire alarm is monitored from Roblox. BMS controls lock automatically during alarm.</p>
         </div>
+        <div class="card">
+  <h2>Zones</h2>
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Zone</th>
+        <th>Status</th>
+        <th>Details</th>
+      </tr>
+    </thead>
+    <tbody id="zoneTable">
+      <tr>
+        <td>Zone 1</td>
+        <td><span class="badge badge-ok">Normal</span></td>
+        <td>No active fire alarm</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
       </div>
 
       <div id="page-music" class="page hidden">
@@ -492,14 +511,26 @@ async function loadState() {
   document.getElementById("locked").textContent = data.controlsLocked;
   document.getElementById("song").textContent = data.currentSongNumber || "None";
 
-  document.getElementById("firePageStatus").innerHTML = data.fire === "alarm"
+ const firePageStatus = document.getElementById("firePageStatus");
+const firePageLocked = document.getElementById("firePageLocked");
+
+if (firePageStatus) {
+  firePageStatus.innerHTML = data.fire === "alarm"
     ? "<span class='badge badge-alarm'>ALARM</span>"
     : "<span class='badge badge-ok'>NORMAL</span>";
+}
+
+if (firePageLocked) {
+  firePageLocked.textContent = data.controlsLocked;
+}
 
   document.getElementById("firePageLocked").textContent = data.controlsLocked;
 
+const zoneTable = document.getElementById("zoneTable");
+
+if (zoneTable) {
   if (data.activeFire) {
-    document.getElementById("zoneTable").innerHTML =
+    zoneTable.innerHTML =
       "<tr><td>Zone " + data.activeFire.zone + "</td><td><span class='badge badge-alarm'>ALARM</span></td><td>" +
       data.activeFire.deviceName + " | " +
       data.activeFire.location + " | " +
@@ -508,9 +539,10 @@ async function loadState() {
       data.activeFire.serialNumber +
       "</td></tr>";
   } else {
-    document.getElementById("zoneTable").innerHTML =
+    zoneTable.innerHTML =
       "<tr><td>Zone 1</td><td><span class='badge badge-ok'>Normal</span></td><td>No active fire alarm</td></tr>";
   }
+}
 
   document.getElementById("musicPageStatus").textContent = data.music;
   document.getElementById("musicPageSong").textContent = data.currentSongNumber || "None";
