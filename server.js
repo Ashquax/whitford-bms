@@ -580,10 +580,17 @@ async function loadEvents() {
     return "<div class='event'><b>" + e.type + "</b><br>" + new Date(e.created_at).toLocaleString() + "</div>";
   }).join("");
 
-  document.getElementById("events").innerHTML = html;
-  document.getElementById("eventsDash").innerHTML = html;
-}
+  const eventsBox = document.getElementById("events");
+  const eventsDashBox = document.getElementById("eventsDash");
 
+  if (eventsBox) {
+    eventsBox.innerHTML = html;
+  }
+
+  if (eventsDashBox) {
+    eventsDashBox.innerHTML = html;
+  }
+}
 async function sendCommand(command, songNumber) {
   const res = await fetch("/api/music/command", {
     method: "POST",
