@@ -1,3 +1,8 @@
+// =======================================================
+// Whitford Building Management System v2
+// Railway + PostgreSQL + Roblox Integration
+// =======================================================
+
 const express = require("express");
 const cors = require("cors");
 const { Pool } = require("pg");
@@ -8,7 +13,6 @@ const PgSession = require("connect-pg-simple")(session);
 const app = express();
 
 app.set("trust proxy", 1);
-
 app.use(cors());
 app.use(express.json());
 
@@ -37,42 +41,6 @@ app.use(session({
     sameSite: "lax"
   }
 }));
-    maxAge: 1000 * 60 * 60 * 8,
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax"
-  }
-}));
-  secret: SESSION_SECRET,
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    maxAge: 1000 * 60 * 60 * 8,
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax"
-  }
-}));
-
-let bmsState = {
-  fire: "normal",
-  controlsLocked: false,
-
-  music: "stopped",
-  currentSongNumber: null,
-  currentSongId: null,
-
-  lifts: "normal",
-  liftData: [],
-
-  access: "normal",
-
-  fireLive: "offline",
-  fireDevices: [],
-  fireZones: [],
-  activeFire: null,
-  fireEvents: []
-};
 
 let songs = [];
 
@@ -87,6 +55,30 @@ let latestAccessCommand = {
   id: 0,
   command: "none",
   value: null
+};
+
+let bmsState = {
+  fire: "normal",
+  fireLive: "offline",
+  controlsLocked: false,
+  activeFire: null,
+  fireEvents: [],
+  fireDevices: [],
+  fireZones: [],
+  fireNodes: [],
+
+  music: "stopped",
+  currentSongNumber: null,
+  currentSongId: null,
+
+  lifts: "offline",
+  liftData: [],
+
+  access: "offline",
+  accessDoors: [],
+
+  lastRobloxUpdate: null,
+  version: "2.0.0"
 };
 
 function checkSecret(req, res) {
@@ -124,20 +116,20 @@ function requireRole(...roles) {
 
 async function initDb() {
   await pool.query(`
-    CREATE TABLE IF NOT EXISTS event_log (
-      id SERIAL PRIMARY KEY,
-      type TEXT NOT NULL,
-      data JSONB NOT NULL,
-      created_at TIMESTAMP DEFAULT NOW()
-    )
-  `);
-
-  await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
       username TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
       role TEXT NOT NULL CHECK (role IN ('operator', 'supervisor', 'administrator')),
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS event_log (
+      id SERIAL PRIMARY KEY,
+      type TEXT NOT NULL,
+      data JSONB NOT NULL,
       created_at TIMESTAMP DEFAULT NOW()
     )
   `);
@@ -157,23 +149,7 @@ app.get("/setup", async (req, res) => {
   const count = await pool.query("SELECT COUNT(*) FROM users");
 
   if (Number(count.rows[0].count) > 0) {
-    return res.send(`
-<!DOCTYPE html>
-<html>
-<head>
-<title>Setup Complete</title>
-<style>
-body { font-family:Arial; background:#f4f5f7; padding:40px; }
-a { color:#e20015; }
-</style>
-</head>
-<body>
-<h1>Setup already completed</h1>
-<p>The administrator account has already been created.</p>
-<a href="/">Go to login</a>
-</body>
-</html>
-    `);
+    return res.redirect("/");
   }
 
   res.send(`
@@ -182,28 +158,28 @@ a { color:#e20015; }
 <head>
 <title>Whitford BMS Setup</title>
 <style>
-body { margin:0; font-family:Arial, Helvetica, sans-serif; background:#f2f3f5; color:#1f2933; }
+body { margin:0; font-family:Arial, Helvetica, sans-serif; background:#eef0f3; color:#1f2933; }
 .topbar { height:6px; background:#e20015; }
-.container { max-width:460px; margin:80px auto; background:white; border-radius:4px; box-shadow:0 8px 25px rgba(0,0,0,0.12); padding:34px; }
-.brand { font-size:24px; font-weight:bold; margin-bottom:4px; }
-.sub { color:#6b7280; margin-bottom:30px; }
-input { width:100%; box-sizing:border-box; padding:13px; margin:8px 0 16px; border:1px solid #c8ccd2; border-radius:3px; }
-button { width:100%; background:#e20015; color:white; border:0; padding:14px; font-weight:bold; cursor:pointer; border-radius:3px; }
+.box { max-width:460px; margin:80px auto; background:white; padding:34px; border-radius:6px; box-shadow:0 8px 25px rgba(0,0,0,0.14); }
+h1 { margin-top:0; }
+input { width:100%; box-sizing:border-box; padding:13px; margin:8px 0 16px; border:1px solid #c8ccd2; border-radius:4px; }
+button { width:100%; background:#e20015; color:white; border:0; padding:14px; font-weight:bold; cursor:pointer; border-radius:4px; }
 button:hover { background:#b80012; }
-.msg { margin-top:15px; color:#e20015; }
+.msg { margin-top:15px; color:#e20015; font-weight:bold; }
 </style>
 </head>
 <body>
 <div class="topbar"></div>
-<div class="container">
-  <div class="brand">Whitford BMS</div>
-  <div class="sub">Initial administrator setup</div>
+<div class="box">
+  <h1>Whitford BMS</h1>
+  <p>Initial administrator setup</p>
   <input id="username" placeholder="Administrator username">
   <input id="password" type="password" placeholder="Password">
   <input id="confirm" type="password" placeholder="Confirm password">
   <button onclick="createAdmin()">Create Administrator</button>
   <div class="msg" id="msg"></div>
 </div>
+
 <script>
 async function createAdmin() {
   const username = document.getElementById("username").value.trim();
@@ -241,62 +217,87 @@ async function createAdmin() {
   `);
 });
 
-</body>
-`);
+app.post("/api/setup/create-admin", async (req, res) => {
+  const count = await pool.query("SELECT COUNT(*) FROM users");
+
+  if (Number(count.rows[0].count) > 0) {
+    return res.status(403).json({ error: "Setup already completed" });
+  }
+
+  const username = String(req.body.username || "").trim();
+  const password = String(req.body.password || "");
+
+  if (!username || !password) {
+    return res.status(400).json({ error: "Username and password required" });
+  }
+
+  const passwordHash = await bcrypt.hash(password, 12);
+
+  await pool.query(
+    "INSERT INTO users (username, password_hash, role) VALUES ($1, $2, $3)",
+    [username, passwordHash, "administrator"]
+  );
+
+  await logEvent("setup_admin_created", { username });
+
+  res.json({ ok: true });
 });
-<!DOCTYPE html>
-<html>
-<head>
-<title>Whitford Building Management System</title>
-<style>
-* { box-sizing:border-box; }
-body { margin:0; font-family:Arial, Helvetica, sans-serif; background:#eef0f3; color:#1f2933; }
-.bosch-strip { height:6px; background:#e20015; }
-.header { height:64px; background:white; border-bottom:1px solid #d8dce2; display:flex; align-items:center; justify-content:space-between; padding:0 24px; }
-.logo { font-size:22px; font-weight:bold; }
-.logo span { color:#e20015; }
-.userbar { color:#6b7280; font-size:14px; }
-.layout { display:flex; height:calc(100vh - 70px); }
-.sidebar { width:245px; background:#26313f; color:white; padding-top:20px; }
-.nav { padding:15px 24px; border-left:4px solid transparent; cursor:pointer; }
-.nav:hover, .nav.active { background:#1d2631; border-left-color:#e20015; }
-.main { flex:1; padding:24px; overflow:auto; }
-.card { background:white; border:1px solid #d8dce2; border-radius:4px; padding:20px; margin-bottom:18px; }
-.grid { display:grid; grid-template-columns:repeat(4, 1fr); gap:18px; }
-.status-card { background:white; border-top:5px solid #9ca3af; padding:20px; min-height:120px; }
-.status-card.alarm { border-top-color:#e20015; }
-.status-card.ok { border-top-color:#00884a; }
-.status-card.warning { border-top-color:#f59e0b; }
-.status-title { font-size:14px; color:#6b7280; }
-.status-value { font-size:28px; margin-top:12px; font-weight:bold; }
-button { background:#e20015; color:white; border:0; padding:11px 16px; margin:5px; cursor:pointer; border-radius:3px; font-weight:bold; }
-button:disabled { background:#9ca3af; cursor:not-allowed; }
-input, select { padding:11px; border:1px solid #c8ccd2; border-radius:3px; min-width:260px; }
-.login-box { max-width:420px; margin:90px auto; background:white; padding:34px; box-shadow:0 8px 25px rgba(0,0,0,0.12); }
-.hidden { display:none; }
-.alarm-text { color:#e20015; font-weight:bold; }
-.good-text { color:#00884a; font-weight:bold; }
-.event { padding:10px; border-bottom:1px solid #e5e7eb; font-size:14px; }
-.page-title { margin-top:0; }
-.badge { display:inline-block; padding:5px 10px; border-radius:20px; font-size:13px; font-weight:bold; }
-.badge-ok { background:#d9f7e8; color:#00884a; }
-.badge-alarm { background:#ffe1e4; color:#e20015; }
-.badge-warning { background:#fff3cd; color:#a16207; }
-.alarm-row { background:#ffe1e4; font-weight:bold; }
-.table { width:100%; border-collapse:collapse; }
-.table th, .table td { text-align:left; padding:10px; border-bottom:1px solid #e5e7eb; }
-.small { color:#6b7280; font-size:13px; }
-.status-ribbon { display:flex; gap:12px; padding:12px 24px; background:#111827; color:white; border-bottom:1px solid #374151; }
-.ribbon-item { padding:8px 14px; border-radius:20px; font-weight:bold; font-size:13px; background:#374151; }
-.ribbon-ok { background:#00884a; }
-.ribbon-alarm { background:#e20015; }
-.ribbon-warning { background:#f59e0b; }
-.big-alarm-banner { display:none; background:#e20015; color:white; padding:22px; font-size:24px; font-weight:bold; margin-bottom:20px; border-radius:4px; animation:pulseAlarm 1s infinite; }
-@keyframes pulseAlarm { 0% { opacity:1; } 50% { opacity:0.75; } 100% { opacity:1; } }
-</style>
-</head>
-<body>
-`);
+
+app.post("/api/auth/login", async (req, res) => {
+  const username = String(req.body.username || "").trim();
+  const password = String(req.body.password || "");
+
+  const result = await pool.query(
+    "SELECT * FROM users WHERE username = $1",
+    [username]
+  );
+
+  const user = result.rows[0];
+
+  if (!user) {
+    return res.status(401).json({ error: "Invalid username or password" });
+  }
+
+  const ok = await bcrypt.compare(password, user.password_hash);
+
+  if (!ok) {
+    return res.status(401).json({ error: "Invalid username or password" });
+  }
+
+  req.session.user = {
+    id: user.id,
+    username: user.username,
+    role: user.role
+  };
+
+  await logEvent("user_login", {
+    username: user.username,
+    role: user.role
+  });
+
+  res.json({ ok: true, user: req.session.user });
+});
+
+app.post("/api/auth/logout", (req, res) => {
+  req.session.destroy(() => {
+    res.json({ ok: true });
+  });
+});
+
+app.get("/api/auth/me", (req, res) => {
+  res.json({ user: req.session.user || null });
+});
+
+app.get("/api/state", requireLogin, (req, res) => {
+  res.json(bmsState);
+});
+
+app.get("/api/events", requireLogin, async (req, res) => {
+  const result = await pool.query(
+    "SELECT * FROM event_log ORDER BY id DESC LIMIT 100"
+  );
+
+  res.json({ events: result.rows });
 });
 app.get("/", (req, res) => {
   res.send(`
@@ -304,55 +305,319 @@ app.get("/", (req, res) => {
 <html>
 <head>
 <title>Whitford Building Management System</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
 <style>
-* { box-sizing:border-box; }
-body { margin:0; font-family:Arial, Helvetica, sans-serif; background:#eef0f3; color:#1f2933; }
-.bosch-strip { height:6px; background:#e20015; }
-.header { height:64px; background:white; border-bottom:1px solid #d8dce2; display:flex; align-items:center; justify-content:space-between; padding:0 24px; }
-.logo { font-size:22px; font-weight:bold; }
-.logo span { color:#e20015; }
-.userbar { color:#6b7280; font-size:14px; }
-.layout { display:flex; height:calc(100vh - 70px); }
-.sidebar { width:245px; background:#26313f; color:white; padding-top:20px; }
-.nav { padding:15px 24px; border-left:4px solid transparent; cursor:pointer; }
-.nav:hover, .nav.active { background:#1d2631; border-left-color:#e20015; }
-.main { flex:1; padding:24px; overflow:auto; }
-.card { background:white; border:1px solid #d8dce2; border-radius:4px; padding:20px; margin-bottom:18px; }
-.grid { display:grid; grid-template-columns:repeat(4, 1fr); gap:18px; }
-.status-card { background:white; border-top:5px solid #9ca3af; padding:20px; min-height:120px; }
-.status-card.alarm { border-top-color:#e20015; }
-.status-card.ok { border-top-color:#00884a; }
-.status-card.warning { border-top-color:#f59e0b; }
-.status-title { font-size:14px; color:#6b7280; }
-.status-value { font-size:28px; margin-top:12px; font-weight:bold; }
-button { background:#e20015; color:white; border:0; padding:11px 16px; margin:5px; cursor:pointer; border-radius:3px; font-weight:bold; }
-button:disabled { background:#9ca3af; cursor:not-allowed; }
-input, select { padding:11px; border:1px solid #c8ccd2; border-radius:3px; min-width:260px; }
-.login-box { max-width:420px; margin:90px auto; background:white; padding:34px; box-shadow:0 8px 25px rgba(0,0,0,0.12); }
-.hidden { display:none; }
-.alarm-text { color:#e20015; font-weight:bold; }
-.good-text { color:#00884a; font-weight:bold; }
-.event { padding:10px; border-bottom:1px solid #e5e7eb; font-size:14px; }
-.page-title { margin-top:0; }
-.badge { display:inline-block; padding:5px 10px; border-radius:20px; font-size:13px; font-weight:bold; }
-.badge-ok { background:#d9f7e8; color:#00884a; }
-.badge-alarm { background:#ffe1e4; color:#e20015; }
-.badge-warning { background:#fff3cd; color:#a16207; }
-.alarm-row { background:#ffe1e4; font-weight:bold; }
-.table { width:100%; border-collapse:collapse; }
-.table th, .table td { text-align:left; padding:10px; border-bottom:1px solid #e5e7eb; }
-.small { color:#6b7280; font-size:13px; }
-.status-ribbon { display:flex; gap:12px; padding:12px 24px; background:#111827; color:white; border-bottom:1px solid #374151; }
-.ribbon-item { padding:8px 14px; border-radius:20px; font-weight:bold; font-size:13px; background:#374151; }
-.ribbon-ok { background:#00884a; }
-.ribbon-alarm { background:#e20015; }
-.ribbon-warning { background:#f59e0b; }
-.big-alarm-banner { display:none; background:#e20015; color:white; padding:22px; font-size:24px; font-weight:bold; margin-bottom:20px; border-radius:4px; animation:pulseAlarm 1s infinite; }
-@keyframes pulseAlarm { 0% { opacity:1; } 50% { opacity:0.75; } 100% { opacity:1; } }
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: Arial, Helvetica, sans-serif;
+  background: #eef0f3;
+  color: #1f2933;
+}
+
+.bosch-strip {
+  height: 6px;
+  background: #e20015;
+}
+
+.header {
+  height: 64px;
+  background: white;
+  border-bottom: 1px solid #d8dce2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+}
+
+.logo {
+  font-size: 22px;
+  font-weight: bold;
+}
+
+.logo span {
+  color: #e20015;
+}
+
+.userbar {
+  color: #6b7280;
+  font-size: 14px;
+}
+
+.layout {
+  display: flex;
+  height: calc(100vh - 118px);
+}
+
+.sidebar {
+  width: 250px;
+  background: #26313f;
+  color: white;
+  padding-top: 18px;
+  flex-shrink: 0;
+}
+
+.nav {
+  padding: 15px 24px;
+  border-left: 4px solid transparent;
+  cursor: pointer;
+  user-select: none;
+}
+
+.nav:hover,
+.nav.active {
+  background: #1d2631;
+  border-left-color: #e20015;
+}
+
+.main {
+  flex: 1;
+  padding: 24px;
+  overflow: auto;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.page-title {
+  margin-top: 0;
+}
+
+.card {
+  background: white;
+  border: 1px solid #d8dce2;
+  border-radius: 5px;
+  padding: 20px;
+  margin-bottom: 18px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 18px;
+}
+
+.status-card {
+  background: white;
+  border-top: 5px solid #9ca3af;
+  border-radius: 5px;
+  padding: 20px;
+  min-height: 120px;
+}
+
+.status-card.ok {
+  border-top-color: #00884a;
+}
+
+.status-card.alarm {
+  border-top-color: #e20015;
+}
+
+.status-card.warning {
+  border-top-color: #f59e0b;
+}
+
+.status-title {
+  font-size: 14px;
+  color: #6b7280;
+}
+
+.status-value {
+  font-size: 28px;
+  margin-top: 12px;
+  font-weight: bold;
+}
+
+button {
+  background: #e20015;
+  color: white;
+  border: 0;
+  padding: 11px 16px;
+  margin: 5px;
+  cursor: pointer;
+  border-radius: 4px;
+  font-weight: bold;
+}
+
+button:hover {
+  background: #b80012;
+}
+
+button:disabled {
+  background: #9ca3af;
+  cursor: not-allowed;
+}
+
+input,
+select {
+  padding: 11px;
+  border: 1px solid #c8ccd2;
+  border-radius: 4px;
+  min-width: 260px;
+}
+
+.login-box {
+  max-width: 420px;
+  margin: 90px auto;
+  background: white;
+  padding: 34px;
+  box-shadow: 0 8px 25px rgba(0,0,0,0.12);
+  border-radius: 5px;
+}
+
+.alarm-text {
+  color: #e20015;
+  font-weight: bold;
+}
+
+.event {
+  padding: 10px;
+  border-bottom: 1px solid #e5e7eb;
+  font-size: 14px;
+}
+
+.badge {
+  display: inline-block;
+  padding: 5px 10px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: bold;
+}
+
+.badge-ok {
+  background: #d9f7e8;
+  color: #00884a;
+}
+
+.badge-alarm {
+  background: #ffe1e4;
+  color: #e20015;
+}
+
+.badge-warning {
+  background: #fff3cd;
+  color: #a16207;
+}
+
+.alarm-row {
+  background: #ffe1e4;
+  font-weight: bold;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th,
+.table td {
+  text-align: left;
+  padding: 10px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.table th {
+  background: #f8fafc;
+  font-size: 13px;
+  color: #374151;
+}
+
+.small {
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.status-ribbon {
+  display: flex;
+  gap: 12px;
+  padding: 12px 24px;
+  background: #111827;
+  color: white;
+  border-bottom: 1px solid #374151;
+  overflow-x: auto;
+}
+
+.ribbon-item {
+  padding: 8px 14px;
+  border-radius: 20px;
+  font-weight: bold;
+  font-size: 13px;
+  background: #374151;
+  white-space: nowrap;
+}
+
+.ribbon-ok {
+  background: #00884a;
+}
+
+.ribbon-alarm {
+  background: #e20015;
+}
+
+.ribbon-warning {
+  background: #f59e0b;
+}
+
+.big-alarm-banner {
+  display: none;
+  background: #e20015;
+  color: white;
+  padding: 22px;
+  font-size: 24px;
+  font-weight: bold;
+  margin-bottom: 20px;
+  border-radius: 4px;
+  animation: pulseAlarm 1s infinite;
+}
+
+@keyframes pulseAlarm {
+  0% { opacity: 1; }
+  50% { opacity: 0.75; }
+  100% { opacity: 1; }
+}
+
+.device-search-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+@media (max-width: 1100px) {
+  .grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .layout {
+    height: auto;
+    min-height: calc(100vh - 118px);
+  }
+}
+
+@media (max-width: 800px) {
+  .layout {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    width: 100%;
+  }
+
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
 </style>
 </head>
-<body>
 
+<body>
 <div class="bosch-strip"></div>
 
 <div id="loginBox" class="login-box">
@@ -369,6 +634,8 @@ input, select { padding:11px; border:1px solid #c8ccd2; border-radius:3px; min-w
   <div class="header">
     <div class="logo"><span>Whitford</span> Building Management System</div>
     <div class="userbar">
+      <span id="clock">--:--:--</span>
+      &nbsp; | &nbsp;
       <span id="user"></span> | <span id="role"></span>
       <button onclick="logout()">Logout</button>
     </div>
@@ -394,23 +661,27 @@ input, select { padding:11px; border:1px solid #c8ccd2; border-radius:3px; min-w
     </div>
 
     <div class="main">
-      <div id="bigAlarmBanner" class="big-alarm-banner"></div>
+      <div id="bigAlarmBanner" class="big-alarm-banner">🔥 FIRE ALARM ACTIVE</div>
 
       <div id="page-dashboard" class="page">
         <h1 class="page-title">Dashboard</h1>
+
         <div class="grid">
           <div class="status-card" id="fireCard">
             <div class="status-title">Fire Alarm</div>
             <div class="status-value" id="fire">---</div>
           </div>
+
           <div class="status-card ok">
             <div class="status-title">Music</div>
             <div class="status-value" id="music">---</div>
           </div>
+
           <div class="status-card ok">
             <div class="status-title">Lifts</div>
             <div class="status-value" id="lifts">---</div>
           </div>
+
           <div class="status-card ok">
             <div class="status-title">Access Control</div>
             <div class="status-value" id="access">---</div>
@@ -421,6 +692,7 @@ input, select { padding:11px; border:1px solid #c8ccd2; border-radius:3px; min-w
           <h2>System Lock Status</h2>
           <p>Controls Locked: <span id="locked"></span></p>
           <p>Current Song: <span id="song"></span></p>
+          <p>Last Roblox Update: <span id="lastRobloxUpdate">---</span></p>
         </div>
 
         <div class="card">
@@ -428,8 +700,7 @@ input, select { padding:11px; border:1px solid #c8ccd2; border-radius:3px; min-w
           <div id="eventsDash"></div>
         </div>
       </div>
-
-      <div id="page-fire" class="page hidden">
+            <div id="page-fire" class="page hidden">
         <h1 class="page-title">Fire Alarm Monitoring</h1>
 
         <div class="card">
@@ -442,8 +713,8 @@ input, select { padding:11px; border:1px solid #c8ccd2; border-radius:3px; min-w
 
         <div class="grid">
           <div class="status-card ok">
-            <div class="status-title">Total Devices</div>
-            <div class="status-value" id="fireDeviceCount">0</div>
+            <div class="status-title">Nodes</div>
+            <div class="status-value" id="fireNodeCount">0</div>
           </div>
 
           <div class="status-card ok">
@@ -451,21 +722,45 @@ input, select { padding:11px; border:1px solid #c8ccd2; border-radius:3px; min-w
             <div class="status-value" id="fireZoneCount">0</div>
           </div>
 
+          <div class="status-card ok">
+            <div class="status-title">Devices</div>
+            <div class="status-value" id="fireDeviceCount">0</div>
+          </div>
+
           <div class="status-card alarm">
             <div class="status-title">Alarms</div>
             <div class="status-value" id="fireAlarmCount">0</div>
           </div>
+        </div>
 
+        <div class="grid">
           <div class="status-card warning">
             <div class="status-title">Faults</div>
             <div class="status-value" id="fireFaultCount">0</div>
           </div>
+
+          <div class="status-card warning">
+            <div class="status-title">Isolated</div>
+            <div class="status-value" id="fireIsolatedCount">0</div>
+          </div>
+
+          <div class="status-card ok">
+            <div class="status-title">Normal Devices</div>
+            <div class="status-value" id="fireNormalCount">0</div>
+          </div>
+
+          <div class="status-card ok">
+            <div class="status-title">System Version</div>
+            <div class="status-value" id="systemVersion">---</div>
+          </div>
         </div>
-                <div class="card">
+
+        <div class="card">
           <h2>Zones</h2>
           <table class="table">
             <thead>
               <tr>
+                <th>Node</th>
                 <th>Zone</th>
                 <th>Status</th>
                 <th>Devices</th>
@@ -476,7 +771,7 @@ input, select { padding:11px; border:1px solid #c8ccd2; border-radius:3px; min-w
             </thead>
             <tbody id="fireZonesTable">
               <tr>
-                <td colspan="6">Waiting for live zone data...</td>
+                <td colspan="7">Waiting for live zone data...</td>
               </tr>
             </tbody>
           </table>
@@ -484,7 +779,17 @@ input, select { padding:11px; border:1px solid #c8ccd2; border-radius:3px; min-w
 
         <div class="card">
           <h2>Devices</h2>
-          <input id="fireDeviceSearch" placeholder="Search devices, zones, loops, locations..." oninput="loadState()">
+
+          <div class="device-search-row">
+            <input id="fireDeviceSearch" placeholder="Search devices, zones, loops, nodes, locations..." oninput="renderFireDevices()">
+            <select id="fireStatusFilter" onchange="renderFireDevices()">
+              <option value="">All statuses</option>
+              <option value="normal">Normal</option>
+              <option value="alarm">Alarm</option>
+              <option value="fault">Fault</option>
+              <option value="isolated">Isolated</option>
+            </select>
+          </div>
 
           <table class="table">
             <thead>
@@ -510,10 +815,13 @@ input, select { padding:11px; border:1px solid #c8ccd2; border-radius:3px; min-w
 
       <div id="page-music" class="page hidden">
         <h1 class="page-title">Music Control</h1>
+
         <div class="card">
           <h2>Playback</h2>
           <p>Status: <span id="musicPageStatus"></span></p>
-          <p>Current Song: <span id="musicPageSong"></span></p>
+          <p>Current Song Number: <span id="musicPageSong"></span></p>
+          <p>Current Song ID: <span id="musicPageSongId"></span></p>
+
           <button class="controlBtn" onclick="sendCommand('play')">Play</button>
           <button class="controlBtn" onclick="sendCommand('pause')">Pause</button>
           <button class="controlBtn" onclick="sendCommand('stop')">Stop</button>
@@ -523,12 +831,13 @@ input, select { padding:11px; border:1px solid #c8ccd2; border-radius:3px; min-w
           <h2>Song Library From Roblox</h2>
           <select id="songList"></select>
           <button class="controlBtn" onclick="playSelected()">Play Selected Song</button>
-          <p class="small">Songs are uploaded from your Roblox MusicSettings module. The list no longer auto-refreshes, so it will not jump back to song 1.</p>
+          <p class="small">Songs are uploaded from your Roblox MusicSettings module. The list will not auto-jump while you are selecting.</p>
         </div>
       </div>
 
       <div id="page-lifts" class="page hidden">
         <h1 class="page-title">Lift Monitoring</h1>
+
         <div class="card">
           <h2>Lift System</h2>
           <p>Status: <span id="liftsPageStatus"></span></p>
@@ -570,10 +879,30 @@ input, select { padding:11px; border:1px solid #c8ccd2; border-radius:3px; min-w
           <button class="controlBtn" onclick="sendAccess('reset')">Reset Releases</button>
           <button class="controlBtn" onclick="sendAccess('open', 10)">Open 10 Seconds</button>
         </div>
+
+        <div class="card">
+          <h2>Door Status</h2>
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Door</th>
+                <th>Status</th>
+                <th>Lock</th>
+                <th>Mode</th>
+              </tr>
+            </thead>
+            <tbody id="accessDoorTable">
+              <tr>
+                <td colspan="4">Waiting for access data...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div id="page-events" class="page hidden">
         <h1 class="page-title">Event Log</h1>
+
         <div class="card">
           <h2>Latest Events</h2>
           <div id="events"></div>
@@ -582,31 +911,67 @@ input, select { padding:11px; border:1px solid #c8ccd2; border-radius:3px; min-w
 
       <div id="page-settings" class="page hidden">
         <h1 class="page-title">Settings</h1>
+
         <div class="card">
           <h2>User Permissions</h2>
           <p><b>Operator:</b> View only</p>
-          <p><b>Supervisor:</b> Music control</p>
+          <p><b>Supervisor:</b> Music and Access control</p>
           <p><b>Administrator:</b> Full access</p>
         </div>
-      </div>
 
-    </div>
+        <div class="card">
+          <h2>System Information</h2>
+          <p>Whitford BMS v<span id="settingsVersion">---</span></p>
+          <p>Railway + PostgreSQL + Roblox Integration</p>
+        </div>
+      </div>
+          </div>
   </div>
 </div>
 
 <script>
 let currentUser = null;
+let latestState = null;
 
 function showPage(page, el) {
-  document.querySelectorAll(".page").forEach(p => p.classList.add("hidden"));
-  document.getElementById("page-" + page).classList.remove("hidden");
+  document.querySelectorAll(".page").forEach(function(p) {
+    p.classList.add("hidden");
+  });
 
-  document.querySelectorAll(".nav").forEach(n => n.classList.remove("active"));
-  el.classList.add("active");
+  const pageEl = document.getElementById("page-" + page);
+
+  if (pageEl) {
+    pageEl.classList.remove("hidden");
+  }
+
+  document.querySelectorAll(".nav").forEach(function(n) {
+    n.classList.remove("active");
+  });
+
+  if (el) {
+    el.classList.add("active");
+  }
 
   if (page === "music") {
     loadSongs();
   }
+}
+
+function updateClock() {
+  const clock = document.getElementById("clock");
+
+  if (!clock) return;
+
+  const now = new Date();
+
+  clock.textContent = now.toLocaleString("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric"
+  });
 }
 
 async function checkLogin() {
@@ -615,45 +980,62 @@ async function checkLogin() {
 
   if (data.user) {
     currentUser = data.user;
+
     document.getElementById("loginBox").classList.add("hidden");
     document.getElementById("appBox").classList.remove("hidden");
+
     document.getElementById("user").textContent = currentUser.username;
     document.getElementById("role").textContent = currentUser.role;
-    loadState();
-    loadSongs();
-    loadEvents();
+
+    await loadState();
+    await loadSongs();
+    await loadEvents();
   } else {
     currentUser = null;
+
     document.getElementById("loginBox").classList.remove("hidden");
     document.getElementById("appBox").classList.add("hidden");
   }
 }
 
 async function login() {
+  const username = document.getElementById("username").value;
+  const password = document.getElementById("password").value;
+
   const res = await fetch("/api/auth/login", {
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({
-      username:document.getElementById("username").value,
-      password:document.getElementById("password").value
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      username,
+      password
     })
   });
 
   const data = await res.json();
 
   if (!res.ok) {
-    document.getElementById("loginMsg").textContent = data.error || "Login failed";
+    document.getElementById("loginMsg").textContent =
+      data.error || "Login failed";
     return;
   }
+
+  document.getElementById("loginMsg").textContent = "";
 
   await checkLogin();
 }
 
 async function logout() {
-  await fetch("/api/auth/logout", { method:"POST" });
+  await fetch("/api/auth/logout", {
+    method: "POST"
+  });
+
   currentUser = null;
-  checkLogin();
+
+  await checkLogin();
 }
+
 async function loadState() {
   if (!currentUser) return;
 
@@ -666,212 +1048,434 @@ async function loadState() {
 
   const data = await res.json();
 
-  document.getElementById("fire").textContent = data.fire;
-  document.getElementById("music").textContent = data.music;
-  document.getElementById("lifts").textContent = data.lifts;
-  document.getElementById("access").textContent = data.access;
-  document.getElementById("locked").textContent = data.controlsLocked;
-  document.getElementById("song").textContent = data.currentSongNumber || "None";
+  latestState = data;
 
-  const firePageStatus = document.getElementById("firePageStatus");
-  const firePageLocked = document.getElementById("firePageLocked");
+  updateDashboard(data);
+  updateFirePage(data);
+  updateMusicPage(data);
+  updateLiftPage(data);
+  updateAccessPage(data);
+  updateRibbon(data);
+  updateControlLocks(data);
+}
 
-  if (firePageStatus) {
-    firePageStatus.innerHTML = data.fire === "alarm"
-      ? "<span class='badge badge-alarm'>ALARM</span>"
-      : "<span class='badge badge-ok'>NORMAL</span>";
+function setText(id, value) {
+  const el = document.getElementById(id);
+
+  if (el) {
+    el.textContent = value;
+  }
+}
+
+function setHTML(id, value) {
+  const el = document.getElementById(id);
+
+  if (el) {
+    el.innerHTML = value;
+  }
+}
+
+function badge(status) {
+  if (status === "alarm") {
+    return "badge badge-alarm";
   }
 
-  if (firePageLocked) {
-    firePageLocked.textContent = data.controlsLocked;
+  if (status === "fault" || status === "isolated" || status === "disabled") {
+    return "badge badge-warning";
   }
 
-  const fireLiveStatus = document.getElementById("fireLiveStatus");
-  const fireDeviceCount = document.getElementById("fireDeviceCount");
-  const fireZoneCount = document.getElementById("fireZoneCount");
-  const fireAlarmCount = document.getElementById("fireAlarmCount");
-  const fireFaultCount = document.getElementById("fireFaultCount");
-  const fireZonesTable = document.getElementById("fireZonesTable");
-  const fireDevicesTable = document.getElementById("fireDevicesTable");
-  const fireSearch = document.getElementById("fireDeviceSearch");
+  return "badge badge-ok";
+}
 
-  const fireZones = Array.isArray(data.fireZones) ? data.fireZones : [];
-  const fireDevices = Array.isArray(data.fireDevices) ? data.fireDevices : [];
+function normaliseStatus(status) {
+  return String(status || "normal").toLowerCase();
+}
 
-  const alarmCount = fireDevices.filter(d => d.status === "alarm").length;
-  const faultCount = fireDevices.filter(d => d.status === "fault").length;
-
-  if (fireLiveStatus) fireLiveStatus.textContent = data.fireLive || "offline";
-  if (fireDeviceCount) fireDeviceCount.textContent = fireDevices.length;
-  if (fireZoneCount) fireZoneCount.textContent = fireZones.length;
-  if (fireAlarmCount) fireAlarmCount.textContent = alarmCount;
-  if (fireFaultCount) fireFaultCount.textContent = faultCount;
-
-  if (fireZonesTable) {
-    if (fireZones.length > 0) {
-      fireZonesTable.innerHTML = fireZones.map(function(zone) {
-        const badge =
-          zone.status === "alarm" ? "badge badge-alarm" :
-          zone.status === "fault" ? "badge badge-warning" :
-          zone.status === "isolated" ? "badge badge-warning" :
-          "badge badge-ok";
-
-        return "<tr>" +
-          "<td>Zone " + (zone.zone || "Unknown") + "</td>" +
-          "<td><span class='" + badge + "'>" + (zone.status || "normal") + "</span></td>" +
-          "<td>" + (zone.deviceCount || 0) + "</td>" +
-          "<td>" + (zone.alarmCount || 0) + "</td>" +
-          "<td>" + (zone.faultCount || 0) + "</td>" +
-          "<td>" + (zone.isolatedCount || 0) + "</td>" +
-        "</tr>";
-      }).join("");
-    } else {
-      fireZonesTable.innerHTML = "<tr><td colspan='6'>Waiting for live zone data...</td></tr>";
-    }
+function safeValue(value, fallback) {
+  if (value === undefined || value === null || value === "") {
+    return fallback || "Unknown";
   }
 
-  if (fireDevicesTable) {
-    let searchText = "";
+  return value;
+}
+function updateDashboard(data) {
+  setText("fire", data.fire || "normal");
+  setText("music", data.music || "stopped");
+  setText("lifts", data.lifts || "offline");
+  setText("access", data.access || "offline");
+  setText("locked", data.controlsLocked ? "true" : "false");
+  setText("song", data.currentSongNumber || "None");
+  setText("systemVersion", data.version || "2.0.0");
+  setText("settingsVersion", data.version || "2.0.0");
 
-    if (fireSearch) {
-      searchText = fireSearch.value.toLowerCase();
-    }
-
-    let filteredDevices = fireDevices;
-
-    if (searchText) {
-      filteredDevices = fireDevices.filter(function(device) {
-        return JSON.stringify(device).toLowerCase().includes(searchText);
-      });
-    }
-
-    if (filteredDevices.length > 0) {
-      fireDevicesTable.innerHTML = filteredDevices.map(function(device) {
-        const badge =
-          device.status === "alarm" ? "badge badge-alarm" :
-          device.status === "fault" ? "badge badge-warning" :
-          device.status === "isolated" ? "badge badge-warning" :
-          "badge badge-ok";
-
-        return "<tr class='" + (device.status === "alarm" ? "alarm-row" : "") + "'>" +
-          "<td>" + (device.node || "Unknown") + "</td>" +
-          "<td>" + (device.loop || "Unknown") + "</td>" +
-          "<td>" + (device.zone || "Unknown") + "</td>" +
-          "<td>" + (device.name || "Unknown") + "</td>" +
-          "<td>" + (device.type || "Unknown") + "</td>" +
-          "<td><span class='" + badge + "'>" + (device.status || "normal") + "</span></td>" +
-          "<td>" + (device.location || "Unknown") + "</td>" +
-          "<td>" + (device.serialNumber || "Unknown") + "</td>" +
-        "</tr>";
-      }).join("");
-    } else {
-      fireDevicesTable.innerHTML = "<tr><td colspan='8'>No matching fire devices.</td></tr>";
-    }
+  if (data.lastRobloxUpdate) {
+    setText(
+      "lastRobloxUpdate",
+      new Date(data.lastRobloxUpdate).toLocaleString()
+    );
+  } else {
+    setText("lastRobloxUpdate", "No Roblox update yet");
   }
-
-  const musicPageStatus = document.getElementById("musicPageStatus");
-  if (musicPageStatus) musicPageStatus.textContent = data.music;
-
-  const musicPageSong = document.getElementById("musicPageSong");
-  if (musicPageSong) musicPageSong.textContent = data.currentSongNumber || "None";
-
-  const liftsPageStatus = document.getElementById("liftsPageStatus");
-  if (liftsPageStatus) liftsPageStatus.textContent = data.lifts;
-
-  const liftTable = document.getElementById("liftTable");
-
-  if (liftTable) {
-    if (Array.isArray(data.liftData) && data.liftData.length > 0) {
-      liftTable.innerHTML = data.liftData.map(function(lift) {
-        return "<tr>" +
-          "<td>" + (lift.name || "Unknown") + "</td>" +
-          "<td>" + (lift.group || "Ungrouped") + "</td>" +
-          "<td>" + (lift.floor || "Unknown") + "</td>" +
-          "<td>" + (lift.direction || "Idle") + "</td>" +
-          "<td>" + (lift.doors || "Unknown") + "</td>" +
-          "<td>" + (lift.status || "Normal") + "</td>" +
-          "<td>" + (lift.fireRecall ? "Yes" : "No") + "</td>" +
-          "<td>" + (lift.servedFloors || "Unknown") + "</td>" +
-        "</tr>";
-      }).join("");
-    } else {
-      liftTable.innerHTML = "<tr><td colspan='8'>No lift data received yet.</td></tr>";
-    }
-  }
-
-  const accessPageStatus = document.getElementById("accessPageStatus");
-  if (accessPageStatus) accessPageStatus.textContent = data.access;
 
   const fireCard = document.getElementById("fireCard");
-  fireCard.className = data.fire === "alarm" ? "status-card alarm" : "status-card ok";
 
-  const ribbonFire = document.getElementById("ribbonFire");
-  const ribbonMusic = document.getElementById("ribbonMusic");
-  const ribbonLifts = document.getElementById("ribbonLifts");
-  const ribbonAccess = document.getElementById("ribbonAccess");
-  const bigAlarmBanner = document.getElementById("bigAlarmBanner");
+  if (fireCard) {
+    fireCard.className =
+      data.fire === "alarm"
+        ? "status-card alarm"
+        : "status-card ok";
+  }
+}
 
-  if (ribbonFire) {
-    ribbonFire.className = data.fire === "alarm"
-      ? "ribbon-item ribbon-alarm"
-      : "ribbon-item ribbon-ok";
-    ribbonFire.textContent = data.fire === "alarm" ? "🔥 Fire Alarm" : "🔥 Fire Normal";
+function updateRibbon(data) {
+  const fire = document.getElementById("ribbonFire");
+  const music = document.getElementById("ribbonMusic");
+  const lifts = document.getElementById("ribbonLifts");
+  const access = document.getElementById("ribbonAccess");
+  const online = document.getElementById("ribbonOnline");
+  const banner = document.getElementById("bigAlarmBanner");
+
+  if (fire) {
+    fire.className =
+      data.fire === "alarm"
+        ? "ribbon-item ribbon-alarm"
+        : "ribbon-item ribbon-ok";
+
+    fire.textContent =
+      data.fire === "alarm"
+        ? "🔥 Fire Alarm"
+        : "🔥 Fire Normal";
   }
 
-  if (ribbonMusic) {
-    ribbonMusic.className = data.music === "fire_locked"
-      ? "ribbon-item ribbon-warning"
-      : "ribbon-item ribbon-ok";
-    ribbonMusic.textContent = "🎵 " + data.music;
+  if (music) {
+    music.className =
+      data.music === "fire_locked"
+        ? "ribbon-item ribbon-warning"
+        : "ribbon-item ribbon-ok";
+
+    music.textContent = "🎵 " + (data.music || "stopped");
   }
 
-  if (ribbonLifts) {
-    ribbonLifts.className = data.lifts === "online"
+  if (lifts) {
+    lifts.className =
+      data.lifts === "offline"
+        ? "ribbon-item ribbon-warning"
+        : "ribbon-item ribbon-ok";
+
+    lifts.textContent = "🛗 " + (data.lifts || "offline");
+  }
+
+  if (access) {
+    access.className =
+      data.access === "offline"
+        ? "ribbon-item ribbon-warning"
+        : "ribbon-item ribbon-ok";
+
+    access.textContent = "🚪 " + (data.access || "offline");
+  }
+
+  if (online) {
+    const age = data.lastRobloxUpdate
+      ? Date.now() - new Date(data.lastRobloxUpdate).getTime()
+      : Infinity;
+
+    const isOnline = age < 15000;
+
+    online.className = isOnline
       ? "ribbon-item ribbon-ok"
       : "ribbon-item ribbon-warning";
-    ribbonLifts.textContent = "🛗 " + data.lifts;
+
+    online.textContent = isOnline
+      ? "🟢 Roblox Online"
+      : "🟠 Roblox Offline";
   }
 
-  if (ribbonAccess) {
-    ribbonAccess.className = data.access === "normal"
-      ? "ribbon-item ribbon-ok"
-      : "ribbon-item ribbon-warning";
-    ribbonAccess.textContent = "🚪 " + data.access;
-  }
+  if (banner) {
+    if (data.fire === "alarm") {
+      banner.style.display = "block";
 
-  if (bigAlarmBanner) {
-    bigAlarmBanner.style.display = data.fire === "alarm" ? "block" : "none";
-
-    if (data.activeFire) {
-      bigAlarmBanner.textContent =
-        "🔥 FIRE ALARM ACTIVE — Zone " +
-        (data.activeFire.zone || "Unknown") +
-        " — " +
-        (data.activeFire.deviceName || data.activeFire.device || "Unknown Device");
+      if (data.activeFire) {
+        banner.textContent =
+          "🔥 FIRE ALARM ACTIVE — " +
+          "Node " +
+          safeValue(data.activeFire.node, "?") +
+          " | Loop " +
+          safeValue(data.activeFire.loop, "?") +
+          " | Zone " +
+          safeValue(data.activeFire.zone, "?") +
+          " | " +
+          safeValue(
+            data.activeFire.deviceName || data.activeFire.device,
+            "Unknown Device"
+          );
+      } else {
+        banner.textContent = "🔥 FIRE ALARM ACTIVE";
+      }
     } else {
-      bigAlarmBanner.textContent = "🔥 FIRE ALARM ACTIVE";
+      banner.style.display = "none";
     }
   }
+}
 
+function updateFirePage(data) {
+  const devices = Array.isArray(data.fireDevices)
+    ? data.fireDevices
+    : [];
+
+  const zones = Array.isArray(data.fireZones)
+    ? data.fireZones
+    : [];
+
+  const nodes = Array.isArray(data.fireNodes)
+    ? data.fireNodes
+    : [];
+
+  const alarmCount = devices.filter(function(d) {
+    return normaliseStatus(d.status) === "alarm";
+  }).length;
+
+  const faultCount = devices.filter(function(d) {
+    return normaliseStatus(d.status) === "fault";
+  }).length;
+
+  const isolatedCount = devices.filter(function(d) {
+    const s = normaliseStatus(d.status);
+    return s === "isolated" || s === "disabled";
+  }).length;
+
+  const normalCount = devices.filter(function(d) {
+    return normaliseStatus(d.status) === "normal";
+  }).length;
+
+  setText(
+    "firePageStatus",
+    data.fire === "alarm" ? "ALARM" : "NORMAL"
+  );
+
+  const firePageStatus = document.getElementById("firePageStatus");
+
+  if (firePageStatus) {
+    firePageStatus.innerHTML =
+      data.fire === "alarm"
+        ? "<span class='badge badge-alarm'>ALARM</span>"
+        : "<span class='badge badge-ok'>NORMAL</span>";
+  }
+
+  setText("fireLiveStatus", data.fireLive || "offline");
+  setText("firePageLocked", data.controlsLocked ? "true" : "false");
+  setText("fireNodeCount", nodes.length);
+  setText("fireZoneCount", zones.length);
+  setText("fireDeviceCount", devices.length);
+  setText("fireAlarmCount", alarmCount);
+  setText("fireFaultCount", faultCount);
+  setText("fireIsolatedCount", isolatedCount);
+  setText("fireNormalCount", normalCount);
+
+  renderFireZones();
+  renderFireDevices();
+}
+
+function renderFireZones() {
+  const table = document.getElementById("fireZonesTable");
+
+  if (!table || !latestState) return;
+
+  const zones = Array.isArray(latestState.fireZones)
+    ? latestState.fireZones
+    : [];
+
+  if (zones.length === 0) {
+    table.innerHTML =
+      "<tr><td colspan='7'>Waiting for live zone data...</td></tr>";
+    return;
+  }
+
+  table.innerHTML = zones.map(function(zone) {
+    const status = normaliseStatus(zone.status);
+
+    return (
+      "<tr>" +
+      "<td>" + safeValue(zone.node, "Unknown") + "</td>" +
+      "<td>" + safeValue(zone.zone, "Unknown") + "</td>" +
+      "<td><span class='" + badge(status) + "'>" + status + "</span></td>" +
+      "<td>" + safeValue(zone.deviceCount, 0) + "</td>" +
+      "<td>" + safeValue(zone.alarmCount, 0) + "</td>" +
+      "<td>" + safeValue(zone.faultCount, 0) + "</td>" +
+      "<td>" + safeValue(zone.isolatedCount, 0) + "</td>" +
+      "</tr>"
+    );
+  }).join("");
+}
+function renderFireDevices() {
+  const table = document.getElementById("fireDevicesTable");
+
+  if (!table || !latestState) return;
+
+  const devices = Array.isArray(latestState.fireDevices)
+    ? latestState.fireDevices
+    : [];
+
+  const searchEl = document.getElementById("fireDeviceSearch");
+  const statusEl = document.getElementById("fireStatusFilter");
+
+  const search = searchEl
+    ? searchEl.value.toLowerCase()
+    : "";
+
+  const statusFilter = statusEl
+    ? statusEl.value
+    : "";
+
+  let filtered = devices.filter(function(device) {
+    const status = normaliseStatus(device.status);
+
+    if (statusFilter && status !== statusFilter) {
+      return false;
+    }
+
+    if (!search) {
+      return true;
+    }
+
+    return JSON.stringify(device)
+      .toLowerCase()
+      .includes(search);
+  });
+
+  if (filtered.length === 0) {
+    table.innerHTML =
+      "<tr><td colspan='8'>No matching fire devices.</td></tr>";
+    return;
+  }
+
+  table.innerHTML = filtered.map(function(device) {
+    const status = normaliseStatus(device.status);
+
+    return (
+      "<tr class='" + (status === "alarm" ? "alarm-row" : "") + "'>" +
+      "<td>" + safeValue(device.node, "Unknown") + "</td>" +
+      "<td>" + safeValue(device.loop, "Unknown") + "</td>" +
+      "<td>" + safeValue(device.zone, "Unknown") + "</td>" +
+      "<td>" + safeValue(device.name, "Unknown") + "</td>" +
+      "<td>" + safeValue(device.type, "Unknown") + "</td>" +
+      "<td><span class='" + badge(status) + "'>" + status + "</span></td>" +
+      "<td>" + safeValue(device.location, "Unknown") + "</td>" +
+      "<td>" + safeValue(device.serialNumber, "Unknown") + "</td>" +
+      "</tr>"
+    );
+  }).join("");
+}
+
+function updateMusicPage(data) {
+  setText("musicPageStatus", data.music || "stopped");
+  setText("musicPageSong", data.currentSongNumber || "None");
+  setText("musicPageSongId", data.currentSongId || "None");
+}
+
+function updateLiftPage(data) {
+  setText("liftsPageStatus", data.lifts || "offline");
+
+  const table = document.getElementById("liftTable");
+
+  if (!table) return;
+
+  const lifts = Array.isArray(data.liftData)
+    ? data.liftData
+    : [];
+
+  if (lifts.length === 0) {
+    table.innerHTML =
+      "<tr><td colspan='8'>Waiting for lift data...</td></tr>";
+    return;
+  }
+
+  table.innerHTML = lifts.map(function(lift) {
+    return (
+      "<tr>" +
+      "<td>" + safeValue(lift.name, "Unknown") + "</td>" +
+      "<td>" + safeValue(lift.group, "Ungrouped") + "</td>" +
+      "<td>" + safeValue(lift.floor, "Unknown") + "</td>" +
+      "<td>" + safeValue(lift.direction, "Idle") + "</td>" +
+      "<td>" + safeValue(lift.doors, "Unknown") + "</td>" +
+      "<td>" + safeValue(lift.status, "Normal") + "</td>" +
+      "<td>" + (lift.fireRecall ? "Yes" : "No") + "</td>" +
+      "<td>" + safeValue(lift.servedFloors, "Unknown") + "</td>" +
+      "</tr>"
+    );
+  }).join("");
+}
+
+function updateAccessPage(data) {
+  setText("accessPageStatus", data.access || "offline");
+
+  const table = document.getElementById("accessDoorTable");
+
+  if (!table) return;
+
+  const doors = Array.isArray(data.accessDoors)
+    ? data.accessDoors
+    : [];
+
+  if (doors.length === 0) {
+    table.innerHTML =
+      "<tr><td colspan='4'>Waiting for access data...</td></tr>";
+    return;
+  }
+
+  table.innerHTML = doors.map(function(door) {
+    return (
+      "<tr>" +
+      "<td>" + safeValue(door.name, "Unknown Door") + "</td>" +
+      "<td>" + safeValue(door.status, "Unknown") + "</td>" +
+      "<td>" + safeValue(door.lock, "Unknown") + "</td>" +
+      "<td>" + safeValue(door.mode, "Normal") + "</td>" +
+      "</tr>"
+    );
+  }).join("");
+}
+
+function updateControlLocks(data) {
   document.querySelectorAll(".controlBtn").forEach(function(btn) {
-    btn.disabled = data.controlsLocked || !currentUser || currentUser.role === "operator";
+    btn.disabled =
+      data.controlsLocked ||
+      !currentUser ||
+      currentUser.role === "operator";
   });
 }
+
 async function loadSongs() {
   if (!currentUser) return;
 
   const list = document.getElementById("songList");
+
+  if (!list) return;
+
   const oldValue = list.value;
 
   const res = await fetch("/api/music/songs");
+
+  if (!res.ok) return;
+
   const data = await res.json();
 
   list.innerHTML = "";
 
-  data.songs.forEach(song => {
+  const songList = Array.isArray(data.songs)
+    ? data.songs
+    : [];
+
+  songList.forEach(function(song) {
     const opt = document.createElement("option");
+
     opt.value = song.number;
-    opt.textContent = song.number + " - " + song.id + " Pitch: " + song.pitch;
+
+    opt.textContent =
+      song.number +
+      " - " +
+      song.id +
+      " Pitch: " +
+      safeValue(song.pitch, "Default");
+
     list.appendChild(opt);
   });
 
@@ -884,70 +1488,88 @@ async function loadEvents() {
   if (!currentUser) return;
 
   const res = await fetch("/api/events");
+
+  if (!res.ok) return;
+
   const data = await res.json();
 
-  const html = data.events.map(e => {
-    return "<div class='event'><b>" + e.type + "</b><br>" + new Date(e.created_at).toLocaleString() + "</div>";
+  const events = Array.isArray(data.events)
+    ? data.events
+    : [];
+
+  const html = events.map(function(e) {
+    return (
+      "<div class='event'>" +
+      "<b>" + e.type + "</b><br>" +
+      new Date(e.created_at).toLocaleString() +
+      "</div>"
+    );
   }).join("");
 
-  const eventsBox = document.getElementById("events");
-  const eventsDashBox = document.getElementById("eventsDash");
-
-  if (eventsBox) {
-    eventsBox.innerHTML = html;
-  }
-
-  if (eventsDashBox) {
-    eventsDashBox.innerHTML = html;
-  }
+  setHTML("events", html || "No events yet.");
+  setHTML("eventsDash", html || "No events yet.");
 }
 
 async function sendCommand(command, songNumber) {
   const res = await fetch("/api/music/command", {
     method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({ command, songNumber })
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      command,
+      songNumber
+    })
   });
 
   const data = await res.json();
 
   if (!res.ok) {
-    alert(data.error || "Command failed");
+    alert(data.error || "Music command failed");
     return;
   }
 
-  loadState();
-  loadEvents();
+  await loadState();
+  await loadEvents();
 }
 
 async function sendAccess(command, value) {
-  console.log("Access button clicked:", command, value);
-
   const res = await fetch("/api/access/command", {
     method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({ command, value })
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      command,
+      value
+    })
   });
 
   const data = await res.json();
-  console.log("Access response:", res.status, data);
 
   if (!res.ok) {
     alert(data.error || "Access command failed");
     return;
   }
 
-  loadState();
-  loadEvents();
+  await loadState();
+  await loadEvents();
 }
 
 function playSelected() {
-  const num = document.getElementById("songList").value;
-  sendCommand("play_song", Number(num));
+  const list = document.getElementById("songList");
+
+  if (!list) return;
+
+  const songNumber = Number(list.value);
+
+  sendCommand("play_song", songNumber);
 }
 
 checkLogin();
+updateClock();
 
+setInterval(updateClock, 1000);
 setInterval(loadState, 1000);
 setInterval(loadEvents, 5000);
 </script>
@@ -956,64 +1578,8 @@ setInterval(loadEvents, 5000);
 </html>
   `);
 });
-app.post("/api/setup/create-admin", async (req, res) => {
-  const count = await pool.query("SELECT COUNT(*) FROM users");
-
-  if (Number(count.rows[0].count) > 0) {
-    return res.status(403).json({ error: "Setup already completed" });
-  }
-
-  const passwordHash = await bcrypt.hash(req.body.password, 12);
-
-  await pool.query(
-    "INSERT INTO users (username, password_hash, role) VALUES ($1, $2, $3)",
-    [req.body.username, passwordHash, "administrator"]
-  );
-
-  res.json({ ok: true });
-});
-
-app.post("/api/auth/login", async (req, res) => {
-  const { username, password } = req.body;
-
-  const result = await pool.query("SELECT * FROM users WHERE username = $1", [username]);
-  const user = result.rows[0];
-
-  if (!user) return res.status(401).json({ error: "Invalid username or password" });
-
-  const ok = await bcrypt.compare(password, user.password_hash);
-  if (!ok) return res.status(401).json({ error: "Invalid username or password" });
-
-  req.session.user = {
-    id: user.id,
-    username: user.username,
-    role: user.role
-  };
-
-  res.json({ ok: true, user: req.session.user });
-});
-
-app.post("/api/auth/logout", (req, res) => {
-  req.session.destroy(() => {
-    res.json({ ok: true });
-  });
-});
-
-app.get("/api/auth/me", (req, res) => {
-  res.json({ user: req.session.user || null });
-});
-
-app.get("/api/state", requireLogin, (req, res) => {
-  res.json(bmsState);
-});
-
 app.get("/api/music/songs", requireLogin, (req, res) => {
   res.json({ songs });
-});
-
-app.get("/api/events", requireLogin, async (req, res) => {
-  const result = await pool.query("SELECT * FROM event_log ORDER BY id DESC LIMIT 50");
-  res.json({ events: result.rows });
 });
 
 app.post("/api/music/command", requireRole("supervisor", "administrator"), async (req, res) => {
@@ -1023,7 +1589,7 @@ app.post("/api/music/command", requireRole("supervisor", "administrator"), async
 
   latestCommand = {
     id: Date.now(),
-    command: req.body.command,
+    command: req.body.command || "none",
     songNumber: req.body.songNumber || null,
     controlsLocked: bmsState.controlsLocked
   };
@@ -1039,28 +1605,59 @@ app.post("/api/music/command", requireRole("supervisor", "administrator"), async
 
 app.get("/api/roblox/music/command", (req, res) => {
   if (!checkSecret(req, res)) return;
+
   res.json(latestCommand);
 });
 
 app.post("/api/roblox/music/songs", async (req, res) => {
   if (!checkSecret(req, res)) return;
 
-  songs = req.body.songs || [];
+  songs = Array.isArray(req.body.songs)
+    ? req.body.songs
+    : [];
 
-  await logEvent("song_list_update", { count: songs.length });
-  res.json({ ok: true, count: songs.length });
+  bmsState.lastRobloxUpdate = new Date().toISOString();
+
+  await logEvent("song_list_update", {
+    count: songs.length
+  });
+
+  res.json({
+    ok: true,
+    count: songs.length
+  });
 });
 
 app.post("/api/roblox/music/state", async (req, res) => {
   if (!checkSecret(req, res)) return;
 
-  bmsState.music = req.body.state || bmsState.music;
-  bmsState.currentSongNumber = req.body.currentSongNumber || null;
-  bmsState.currentSongId = req.body.currentSongId || null;
+  bmsState.music =
+    req.body.state ||
+    bmsState.music;
 
-  await logEvent("music_state", req.body);
-  res.json({ ok: true, state: bmsState });
+  bmsState.currentSongNumber =
+    req.body.currentSongNumber ||
+    null;
+
+  bmsState.currentSongId =
+    req.body.currentSongId ||
+    null;
+
+  bmsState.lastRobloxUpdate =
+    new Date().toISOString();
+
+  await logEvent("music_state", {
+    state: bmsState.music,
+    currentSongNumber: bmsState.currentSongNumber,
+    currentSongId: bmsState.currentSongId
+  });
+
+  res.json({
+    ok: true,
+    state: bmsState
+  });
 });
+
 app.post("/api/access/command", requireRole("supervisor", "administrator"), async (req, res) => {
   if (bmsState.controlsLocked) {
     return res.status(423).json({ error: "Controls locked by fire alarm" });
@@ -1068,7 +1665,7 @@ app.post("/api/access/command", requireRole("supervisor", "administrator"), asyn
 
   latestAccessCommand = {
     id: Date.now(),
-    command: req.body.command,
+    command: req.body.command || "none",
     value: req.body.value || null
   };
 
@@ -1078,51 +1675,87 @@ app.post("/api/access/command", requireRole("supervisor", "administrator"), asyn
     command: latestAccessCommand
   });
 
-  res.json({ ok: true, command: latestAccessCommand });
+  res.json({
+    ok: true,
+    command: latestAccessCommand
+  });
 });
 
 app.get("/api/roblox/access/command", (req, res) => {
   if (!checkSecret(req, res)) return;
+
   res.json(latestAccessCommand);
 });
 
-app.get("/api/debug/reset-fire", async (req, res) => {
-  bmsState.fire = "normal";
-  bmsState.fireLive = "offline";
-  bmsState.controlsLocked = false;
-  bmsState.activeFire = null;
-  bmsState.fireDevices = [];
-  bmsState.fireZones = [];
-  bmsState.access = "online";
-  bmsState.music = "online";
-  bmsState.lifts = "online";
+app.post("/api/roblox/access/state", async (req, res) => {
+  if (!checkSecret(req, res)) return;
+
+  bmsState.access =
+    req.body.access ||
+    req.body.state ||
+    "online";
+
+  bmsState.accessDoors =
+    Array.isArray(req.body.doors)
+      ? req.body.doors
+      : [];
+
+  bmsState.lastRobloxUpdate =
+    new Date().toISOString();
+
+  await logEvent("access_state", {
+    access: bmsState.access,
+    doors: bmsState.accessDoors.length
+  });
 
   res.json({
     ok: true,
-    message: "BMS reset complete."
+    state: bmsState
   });
 });
 
 app.post("/api/roblox/fire/live", async (req, res) => {
   if (!checkSecret(req, res)) return;
 
-  bmsState.fireLive = req.body.fireLive || "online";
-  bmsState.fireDevices = req.body.devices || [];
-  bmsState.fireZones = req.body.zones || [];
+  bmsState.fireLive =
+    req.body.fireLive ||
+    "online";
+
+  bmsState.fireDevices =
+    Array.isArray(req.body.devices)
+      ? req.body.devices
+      : [];
+
+  bmsState.fireZones =
+    Array.isArray(req.body.zones)
+      ? req.body.zones
+      : [];
+
+  bmsState.fireNodes =
+    Array.isArray(req.body.nodes)
+      ? req.body.nodes
+      : deriveNodesFromFireDevices(bmsState.fireDevices);
+
+  bmsState.lastRobloxUpdate =
+    new Date().toISOString();
 
   await logEvent("fire_live_update", {
     devices: bmsState.fireDevices.length,
-    zones: bmsState.fireZones.length
+    zones: bmsState.fireZones.length,
+    nodes: bmsState.fireNodes.length
   });
 
-  res.json({ ok: true, state: bmsState });
+  res.json({
+    ok: true,
+    state: bmsState
+  });
 });
 
 app.post("/api/roblox/fire/active", async (req, res) => {
   if (!checkSecret(req, res)) return;
 
   const fireEvent = {
-    eventType: req.body.eventType || "Unknown",
+    eventType: req.body.eventType || "Fire",
     deviceName: req.body.deviceName || "Unknown Device",
     device: req.body.device || "Unknown",
     location: req.body.location || "Unknown",
@@ -1130,7 +1763,7 @@ app.post("/api/roblox/fire/active", async (req, res) => {
     node: req.body.node || "Unknown",
     loop: req.body.loop || "Unknown",
     serialNumber: req.body.serialNumber || "Unknown",
-    origin: req.body.origin || "Unknown",
+    origin: req.body.origin || "Roblox",
     time: req.body.time || new Date().toLocaleTimeString()
   };
 
@@ -1138,6 +1771,7 @@ app.post("/api/roblox/fire/active", async (req, res) => {
   bmsState.controlsLocked = true;
   bmsState.music = "fire_locked";
   bmsState.activeFire = fireEvent;
+  bmsState.lastRobloxUpdate = new Date().toISOString();
 
   bmsState.fireEvents.unshift(fireEvent);
   bmsState.fireEvents = bmsState.fireEvents.slice(0, 50);
@@ -1150,7 +1784,11 @@ app.post("/api/roblox/fire/active", async (req, res) => {
   };
 
   await logEvent("fire_active", fireEvent);
-  res.json({ ok: true, state: bmsState });
+
+  res.json({
+    ok: true,
+    state: bmsState
+  });
 });
 
 app.post("/api/roblox/fire/reset", async (req, res) => {
@@ -1160,6 +1798,7 @@ app.post("/api/roblox/fire/reset", async (req, res) => {
   bmsState.controlsLocked = false;
   bmsState.activeFire = null;
   bmsState.fireEvents = [];
+  bmsState.lastRobloxUpdate = new Date().toISOString();
 
   latestCommand = {
     id: Date.now(),
@@ -1169,31 +1808,134 @@ app.post("/api/roblox/fire/reset", async (req, res) => {
   };
 
   await logEvent("fire_reset", req.body);
-  res.json({ ok: true, state: bmsState });
-});
 
+  res.json({
+    ok: true,
+    state: bmsState
+  });
+});
 app.post("/api/roblox/lifts/state", async (req, res) => {
   if (!checkSecret(req, res)) return;
 
-  bmsState.lifts = req.body.lifts || "normal";
-  bmsState.liftData = req.body.liftData || [];
+  bmsState.lifts =
+    req.body.lifts ||
+    req.body.state ||
+    "online";
+
+  bmsState.liftData =
+    Array.isArray(req.body.liftData)
+      ? req.body.liftData
+      : [];
+
+  bmsState.lastRobloxUpdate =
+    new Date().toISOString();
 
   await logEvent("lifts_state", {
     lifts: bmsState.lifts,
-    count: bmsState.liftData.length,
-    liftData: bmsState.liftData
+    count: bmsState.liftData.length
   });
 
-  res.json({ ok: true, state: bmsState });
+  res.json({
+    ok: true,
+    state: bmsState
+  });
 });
+
+app.get("/api/debug/reset-fire", async (req, res) => {
+  bmsState.fire = "normal";
+  bmsState.fireLive = "offline";
+  bmsState.controlsLocked = false;
+  bmsState.activeFire = null;
+  bmsState.fireEvents = [];
+  bmsState.fireDevices = [];
+  bmsState.fireZones = [];
+  bmsState.fireNodes = [];
+
+  bmsState.music = "stopped";
+  bmsState.lifts = "offline";
+  bmsState.access = "offline";
+
+  latestCommand = {
+    id: Date.now(),
+    command: "none",
+    songNumber: null,
+    controlsLocked: false
+  };
+
+  await logEvent("debug_reset_fire", {
+    source: "manual_debug_endpoint"
+  });
+
+  res.json({
+    ok: true,
+    message: "BMS fire/debug state reset.",
+    state: bmsState
+  });
+});
+
+app.get("/health", (req, res) => {
+  res.json({
+    ok: true,
+    service: "Whitford BMS",
+    version: bmsState.version,
+    time: new Date().toISOString()
+  });
+});
+
+app.get("/api/health", (req, res) => {
+  res.json({
+    ok: true,
+    service: "Whitford BMS",
+    version: bmsState.version,
+    fire: bmsState.fire,
+    music: bmsState.music,
+    lifts: bmsState.lifts,
+    access: bmsState.access,
+    lastRobloxUpdate: bmsState.lastRobloxUpdate
+  });
+});
+
+function deriveNodesFromFireDevices(devices) {
+  const nodeMap = {};
+
+  devices.forEach(function(device) {
+    const nodeName =
+      device.node ||
+      "Unknown";
+
+    if (!nodeMap[nodeName]) {
+      nodeMap[nodeName] = {
+        node: nodeName,
+        deviceCount: 0,
+        alarmCount: 0,
+        faultCount: 0,
+        isolatedCount: 0
+      };
+    }
+
+    nodeMap[nodeName].deviceCount += 1;
+
+    const status = String(device.status || "normal").toLowerCase();
+
+    if (status === "alarm") {
+      nodeMap[nodeName].alarmCount += 1;
+    } else if (status === "fault") {
+      nodeMap[nodeName].faultCount += 1;
+    } else if (status === "isolated" || status === "disabled") {
+      nodeMap[nodeName].isolatedCount += 1;
+    }
+  });
+
+  return Object.values(nodeMap);
+}
 
 initDb()
   .then(() => {
     app.listen(PORT, () => {
-      console.log("Whitford BMS running on port", PORT);
+      console.log("Whitford BMS v2 running on port", PORT);
     });
   })
   .catch((err) => {
-    console.error("Failed to start BMS:", err);
+    console.error("Failed to start Whitford BMS:", err);
     process.exit(1);
   });
