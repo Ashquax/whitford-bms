@@ -560,6 +560,7 @@ async function sendAccess(command, value) {
   });
 
   const data = await res.json();
+  console.log("Access response:", res.status, data);
 
   if (!res.ok) {
     alert(data.error || "Access command failed");
