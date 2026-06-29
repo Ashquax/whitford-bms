@@ -944,6 +944,26 @@ app.get("/api/roblox/access/command", (req, res) => {
 
     res.json(latestAccessCommand);
 });
+app.post("/api/debug/reset-all", async (req, res) => {
+
+    bmsState.fire = "normal";
+    bmsState.fireLive = "offline";
+    bmsState.controlsLocked = false;
+
+    bmsState.activeFire = null;
+
+    bmsState.fireDevices = [];
+    bmsState.fireZones = [];
+
+    bmsState.access = "online";
+    bmsState.music = "online";
+    bmsState.lifts = "online";
+
+    res.json({
+        ok: true,
+        message: "BMS reset complete."
+    });
+});
 app.post("/api/roblox/fire/live", async (req, res) => {
   if (!checkSecret(req, res)) return;
 
