@@ -865,14 +865,19 @@ app.post("/api/roblox/fire/reset", async (req, res) => {
 });
 
 app.post("/api/roblox/lifts/state", async (req, res) => {
-    if (!checkSecret(req, res)) return;
+  if (!checkSecret(req, res)) return;
 
-    bmsState.lifts = req.body.lifts || "normal";
+  bmsState.lifts = req.body.lifts || "normal";
+  bmsState.liftData = req.body.liftData || [];
 
-    await logEvent("lifts_state", req.body);
-    res.json({ ok: true, state: bmsState });
+  await logEvent("lifts_state", {
+    lifts: bmsState.lifts,
+    count: bmsState.liftData.length,
+    liftData: bmsState.liftData
+  });
+
+  res.json({ ok: true, state: bmsState });
 });
-
 initDb()
     .then(() => {
         app.listen(PORT, () => {
