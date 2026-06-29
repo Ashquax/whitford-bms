@@ -323,34 +323,84 @@ input, select { padding:11px; border:1px solid #c8ccd2; border-radius:3px; min-w
         </div>
       </div>
 
-      <div id="page-fire" class="page hidden">
-        <h1 class="page-title">Fire Alarm Monitoring</h1>
-        <div class="card">
-          <h2>Lumina Fire System</h2>
-          <p>Status: <span id="firePageStatus"></span></p>
-          <p>Controls Locked: <span id="firePageLocked"></span></p>
-          <p class="small">Fire alarm is monitored from Roblox. BMS controls lock automatically during alarm.</p>
-        </div>
-        <div class="card">
-  <h2>Zones</h2>
-  <table class="table">
-    <thead>
-      <tr>
-        <th>Zone</th>
-        <th>Status</th>
-        <th>Details</th>
-      </tr>
-    </thead>
-    <tbody id="zoneTable">
-      <tr>
-        <td>Zone 1</td>
-        <td><span class="badge badge-ok">Normal</span></td>
-        <td>No active fire alarm</td>
-      </tr>
-    </tbody>
-  </table>
+     <div id="page-fire" class="page hidden">
+  <h1 class="page-title">Fire Alarm Monitoring</h1>
+
+  <div class="card">
+    <h2>Lumina Fire System</h2>
+    <p>Status: <span id="firePageStatus"></span></p>
+    <p>Live Monitor: <span id="fireLiveStatus">---</span></p>
+    <p>Controls Locked: <span id="firePageLocked"></span></p>
+    <p class="small">Live zones and devices are sent from the Lumina panel in Roblox.</p>
+  </div>
+
+  <div class="grid">
+    <div class="status-card ok">
+      <div class="status-title">Total Devices</div>
+      <div class="status-value" id="fireDeviceCount">0</div>
+    </div>
+
+    <div class="status-card ok">
+      <div class="status-title">Zones</div>
+      <div class="status-value" id="fireZoneCount">0</div>
+    </div>
+
+    <div class="status-card alarm">
+      <div class="status-title">Alarms</div>
+      <div class="status-value" id="fireAlarmCount">0</div>
+    </div>
+
+    <div class="status-card warning">
+      <div class="status-title">Faults</div>
+      <div class="status-value" id="fireFaultCount">0</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Zones</h2>
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Zone</th>
+          <th>Status</th>
+          <th>Devices</th>
+          <th>Alarms</th>
+          <th>Faults</th>
+          <th>Isolated</th>
+        </tr>
+      </thead>
+      <tbody id="fireZonesTable">
+        <tr>
+          <td colspan="6">Waiting for live zone data...</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Devices</h2>
+    <input id="fireDeviceSearch" placeholder="Search devices, zones, loops, locations..." oninput="loadState()">
+
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Loop</th>
+          <th>Zone</th>
+          <th>Device</th>
+          <th>Type</th>
+          <th>Status</th>
+          <th>Location</th>
+          <th>Serial</th>
+        </tr>
+      </thead>
+      <tbody id="fireDevicesTable">
+        <tr>
+          <td colspan="7">Waiting for live device data...</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
 </div>
-      </div>
 
       <div id="page-music" class="page hidden">
         <h1 class="page-title">Music Control</h1>
@@ -530,6 +580,86 @@ if (firePageLocked) {
 }
 
   document.getElementById("firePageLocked").textContent = data.controlsLocked;
+  const fireLiveStatus = document.getElementById("fireLiveStatus");
+const fireDeviceCount = document.getElementById("fireDeviceCount");
+const fireZoneCount = document.getElementById("fireZoneCount");
+const fireAlarmCount = document.getElementById("fireAlarmCount");
+const fireFaultCount = document.getElementById("fireFaultCount");
+const fireZonesTable = document.getElementById("fireZonesTable");
+const fireDevicesTable = document.getElementById("fireDevicesTable");
+const fireSearch = document.getElementById("fireDeviceSearch");
+
+const fireZones = Array.isArray(data.fireZones) ? data.fireZones : [];
+const fireDevices = Array.isArray(data.fireDevices) ? data.fireDevices : [];
+
+const alarmCount = fireDevices.filter(d => d.status === "alarm").length;
+const faultCount = fireDevices.filter(d => d.status === "fault").length;
+
+if (fireLiveStatus) fireLiveStatus.textContent = data.fireLive || "offline";
+if (fireDeviceCount) fireDeviceCount.textContent = fireDevices.length;
+if (fireZoneCount) fireZoneCount.textContent = fireZones.length;
+if (fireAlarmCount) fireAlarmCount.textContent = alarmCount;
+if (fireFaultCount) fireFaultCount.textContent = faultCount;
+
+if (fireZonesTable) {
+  if (fireZones.length > 0) {
+    fireZonesTable.innerHTML = fireZones.map(function(zone) {
+      const badge =
+        zone.status === "alarm" ? "badge badge-alarm" :
+        zone.status === "fault" ? "badge badge-warning" :
+        "badge badge-ok";
+
+      return "<tr>" +
+        "<td>Zone " + (zone.zone || "Unknown") + "</td>" +
+        "<td><span class='" + badge + "'>" + (zone.status || "normal") + "</span></td>" +
+        "<td>" + (zone.deviceCount || 0) + "</td>" +
+        "<td>" + (zone.alarmCount || 0) + "</td>" +
+        "<td>" + (zone.faultCount || 0) + "</td>" +
+        "<td>" + (zone.isolatedCount || 0) + "</td>" +
+      "</tr>";
+    }).join("");
+  } else {
+    fireZonesTable.innerHTML = "<tr><td colspan='6'>Waiting for live zone data...</td></tr>";
+  }
+}
+
+if (fireDevicesTable) {
+  let searchText = "";
+
+  if (fireSearch) {
+    searchText = fireSearch.value.toLowerCase();
+  }
+
+  let filteredDevices = fireDevices;
+
+  if (searchText) {
+    filteredDevices = fireDevices.filter(function(device) {
+      return JSON.stringify(device).toLowerCase().includes(searchText);
+    });
+  }
+
+  if (filteredDevices.length > 0) {
+    fireDevicesTable.innerHTML = filteredDevices.map(function(device) {
+      const badge =
+        device.status === "alarm" ? "badge badge-alarm" :
+        device.status === "fault" ? "badge badge-warning" :
+        device.status === "isolated" ? "badge badge-warning" :
+        "badge badge-ok";
+
+      return "<tr>" +
+        "<td>" + (device.loop || "Unknown") + "</td>" +
+        "<td>" + (device.zone || "Unknown") + "</td>" +
+        "<td>" + (device.name || "Unknown") + "</td>" +
+        "<td>" + (device.type || "Unknown") + "</td>" +
+        "<td><span class='" + badge + "'>" + (device.status || "normal") + "</span></td>" +
+        "<td>" + (device.location || "Unknown") + "</td>" +
+        "<td>" + (device.serialNumber || "Unknown") + "</td>" +
+      "</tr>";
+    }).join("");
+  } else {
+    fireDevicesTable.innerHTML = "<tr><td colspan='7'>No matching fire devices.</td></tr>";
+  }
+}
 
 const zoneTable = document.getElementById("zoneTable");
 
